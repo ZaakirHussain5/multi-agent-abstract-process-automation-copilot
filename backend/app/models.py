@@ -183,6 +183,19 @@ class DeliverableResult(BaseModel):
     version: int = 1
 
 
+class ToolProposal(BaseModel):
+    """A tool an employee suggested. Approving it registers the tool for this session."""
+
+    id: str
+    member_id: str
+    member_name: str
+    name: str
+    description: str
+    side_effect: bool = False
+    reason: str = ""
+    status: Literal["pending", "approved", "denied"] = "pending"
+
+
 class OpenQuestion(BaseModel):
     id: str
     agent_id: str
@@ -204,6 +217,7 @@ class Session(BaseModel):
     scene: SceneConfig | None = None
     events: list[ActivityEvent] = Field(default_factory=list)
     approvals: list[Approval] = Field(default_factory=list)
+    proposals: list[ToolProposal] = Field(default_factory=list)
     deliverables: list[DeliverableResult] = Field(default_factory=list)
     open_questions: list[OpenQuestion] = Field(default_factory=list)
     approve_all: bool = False

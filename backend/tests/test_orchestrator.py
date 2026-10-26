@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 
@@ -8,8 +9,10 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.llm import MockProvider, OpenAICompatProvider
 from app.main import create_app
-from app.orchestrator import Orchestrator, parse_turn
+from app.models import ProposedTool, ToolProposal
+from app.orchestrator import APIError, Orchestrator, parse_turn
 from app.prompts import clarify_messages, design_messages
+from app.scene import scene_for_brief
 from app.scheduler import Scheduler
 from app.spec import new_id
 from app.store import Store
@@ -28,7 +31,15 @@ def test_clarify_prompt_includes_the_brief():
     messages = clarify_messages("Open a weekend clinic for bike repair")
     assert "TASK: clarify" in messages[0]["content"]
     assert "bike repair" in messages[1]["content"]
-    assert "TASK: design" in design_messages("Open a weekend clinic", {"q1": "Small"})[0]["content"]
+    designed = design_messages(
+        "Open a weekend clinic",
+        {"q1": "Small"},
+        [{"id": "q1", "prompt": "What does a successful outcome look like?"}],
+    )
+    assert "TASK: design" in designed[0]["content"]
+    assert "Read the answers first" in designed[0]["content"]
+    assert "QUESTIONNAIRE_JSON" in designed[1]["content"]
+    assert "successful outcome" in designed[1]["content"]
 
 
 def test_parse_turn_is_lenient():
@@ -93,6 +104,99 @@ async def test_sales_team_is_not_an_engineering_team(env):
     roles = {member.role for member in session.team.members}
     assert "Engineer" not in roles
     assert session.team.domain == "sales"
+
+
+@pytest.mark.asyncio
+async def test_office_is_built_from_the_questionnaire_team(env):
+    store, orch, _registry = env
+    session = await orch.start("Launch the product on Friday")
+    assert session.scene is None
+    assert scene_for_brief(session.prompt).preset == "war_room"
+    answer = "The outcome is a research read of the lab notes, not a campaign. Do not write code. Keep the team small."
+    session = await orch.submit_answers(
+        session.id,
+        {question.id: answer for question in session.questions},
+    )
+    assert session.team is not None
+    assert session.team.domain == "research"
+    assert session.scene is not None
+    assert session.scene.preset == "lab"
+    assert any("lab notes" in member.persona.lower() for member in session.team.members)
+    assert session.proposals
+    assert all(item.status == "pending" for item in session.proposals)
+    assert store.get_session(session.id).scene.preset == "lab"
+
+
+@pytest.mark.asyncio
+async def test_approving_a_proposal_registers_it_behind_the_same_gate(env):
+    store, orch, registry = env
+    session = await orch.start("Launch the product on Friday")
+    answer = "The outcome is a research read of the lab notes, not a campaign. Do not write code."
+    session = await orch.submit_answers(
+        session.id,
+        {question.id: answer for question in session.questions},
+    )
+    proposal = session.proposals[0]
+    assert proposal.name not in registry.names()
+    updated = orch.resolve_proposal(session.id, proposal.id, "approved")
+    owner = next(member for member in updated.team.members if member.id == proposal.member_id)
+    assert proposal.name in owner.allowed_tools
+    assert updated.proposals[0].status == "approved"
+    recorded = await orch._invoke_tool(session.id, proposal.name, {"note": "keep the lab notes"})
+    assert recorded["ok"] is True
+
+    builtin = ToolProposal(
+        id="prop_builtin",
+        member_id=owner.id,
+        member_name=owner.name,
+        name="web_search",
+        description="Already a built-in.",
+        side_effect=True,
+        reason="Should not double-register.",
+    )
+
+    def add_builtin(found):
+        found.proposals.append(builtin)
+
+    store.update_session(session.id, add_builtin)
+    with pytest.raises(APIError):
+        orch.resolve_proposal(session.id, builtin.id, "approved")
+
+    custom = ProposedTool(
+        name="page-the-oncall",
+        description="Page someone outside the workspace.",
+        side_effect=True,
+        reason="The lab notes named an on-call rotation.",
+    )
+    from app.tools import make_registered_tool
+
+    orch._registered.setdefault(session.id, {})[custom.name] = make_registered_tool(custom)
+
+    def allow_custom(found):
+        found.status = "running"
+        found.team.members[0].allowed_tools.append(custom.name)
+
+    store.update_session(session.id, allow_custom)
+    member = store.get_session(session.id).team.members[0]
+    task = asyncio.create_task(
+        orch._run_tools(
+            session.id,
+            member,
+            [{"tool": custom.name, "args": {"who": "lead"}, "reason": "Page the on-call about the lab notes."}],
+        )
+    )
+    pending = None
+    for _ in range(40):
+        current = store.get_session(session.id)
+        pending = next((item for item in current.approvals if item.tool == custom.name and item.status == "pending"), None)
+        if pending:
+            break
+        await asyncio.sleep(0.02)
+    assert pending is not None
+    orch.resolve_approval(session.id, pending.id, "approved")
+    notes = await asyncio.wait_for(task, timeout=5)
+    assert "page-the-oncall" in notes
+    assert store.get_session(session.id).approvals[-1].status == "approved"
 
 
 @pytest.mark.asyncio

@@ -35,25 +35,43 @@ def clarify_messages(prompt: str) -> list[dict[str, str]]:
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def design_messages(prompt: str, answers: dict[str, str]) -> list[dict[str, str]]:
+def design_messages(
+    prompt: str,
+    answers: dict[str, str],
+    questions: list[dict] | None = None,
+) -> list[dict[str, str]]:
     system = _system(
         "design",
-        "Design a team for this brief. Invent the roles from the prompt. Do not use a stock list of job titles.\n"
+        "Design the team by reasoning over the clarifying questionnaire. "
+        "The questionnaire is the brief plus the questions you asked plus the user's answers. "
+        "Read the answers first. When an answer disagrees with a keyword in the brief, follow the answer.\n"
+        "Decide, from that reading, the team size, each job title, each persona, the responsibilities, and the toolset.\n"
         "Rules:\n"
-        "- Between 2 and 6 members, including one Team Lead who reports to nobody and uses model_hint spark.\n"
-        "- Role titles must contain words from this brief. Two different briefs must not receive the same role title unless they share those words.\n"
-        "- Choose allowed_tools from the registry based on the work, not from a role template. "
-        "Use code_execute only when the brief needs something that runs. Use image_generate when the brief needs a picture. "
+        "- Between 2 and 6 members, including one lead who reports to nobody and uses model_hint spark.\n"
+        "- Job titles are yours to invent from what the answers asked for. Do not use a stock list of titles such as Engineer, Marketer, Designer, Researcher, or Analyst.\n"
+        "- Personas must say why this person is here, in words that trace back to an answer. If the user left an answer open, say that you fell back to the brief.\n"
+        "- Team size follows the answers: a small or lean ask is a smaller team; a comprehensive ask is a larger one.\n"
+        "- Choose allowed_tools from the registry based on the questionnaire, not from a role template. "
+        "Use code_execute only when the answers ask for something that runs. Use image_generate when they ask for a picture. "
         "model_hint is code when code_execute is allowed, image when the work is visual, otherwise spark.\n"
-        "- Propose one new tool that is not in the registry, on proposed_tools. It is a suggestion, not a call.\n"
-        "- Every member has a persona sentence, a silhouette (tall, compact, or broad), expertise, responsibilities, and at least one deliverable.\n"
-        "- Every deliverable has a description and acceptance_criteria specific to this brief.\n"
+        "- If an answer says not to write code, or not to run a campaign, do not staff that work.\n"
+        "- Propose one new tool that is not in the registry, on proposed_tools. It is a suggestion, not a call. "
+        "A person must approve it before it can be used. If it has side effects, each call still waits for approval.\n"
+        "- Every member has expertise, responsibilities, and at least one deliverable with acceptance criteria drawn from the questionnaire.\n"
         "- allowed_tools is a subset of: web_search, http_request, code_execute, file_write, notes, image_generate.\n"
         "- permission_level is one of: observe, draft, act_with_approval, act.\n"
-        "- Prefer act_with_approval for anything that can leave the workspace. The team should plan, act, and verify without waiting, except for those side effects.\n"
+        "- Prefer act_with_approval for anything that can leave the workspace.\n"
+        "- domain is a short label for the team you actually designed, after reading the answers.\n"
         'Schema: {"name":"","mission":"","domain":"","structure":"","members":[{"id":"","name":"","role":"","persona":"","silhouette":"compact","expertise":[""],"responsibilities":[""],"deliverables":[{"id":"","title":"","description":"","acceptance_criteria":[""],"kind":"document"}],"allowed_tools":[""],"proposed_tools":[{"name":"","description":"","side_effect":false,"reason":""}],"permission_level":"act_with_approval","model_hint":"spark","reports_to":null,"avatar_hue":200}]}',
     )
-    user = "USER_PROMPT:\n" + prompt.strip() + "\n\nANSWERS_JSON:\n" + json.dumps(answers, indent=2)
+    user = (
+        "USER_PROMPT:\n"
+        + prompt.strip()
+        + "\n\nQUESTIONNAIRE_JSON:\n"
+        + json.dumps(questions or [], indent=2)
+        + "\n\nANSWERS_JSON:\n"
+        + json.dumps(answers, indent=2)
+    )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 

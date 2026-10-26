@@ -5,7 +5,9 @@ import * as THREE from "three";
 import type { SceneConfig, Session, TeamMemberSpec } from "@/lib/types";
 import { Employee } from "@/world/Employee";
 import { Room } from "@/world/Room";
-import { deskSlots, employeePose, gatherSlot, pendingApproval, type Slot } from "@/world/state";
+import type { SpeechBubble } from "@/world/speech";
+import { speechBubbles } from "@/world/speech";
+import { deskSlots, employeePose, gatherSlot, type Slot } from "@/world/state";
 
 function CameraRig({
   focus,
@@ -41,8 +43,9 @@ export function Stage({
   session,
   selectedId,
   simple,
+  now,
   onSelect,
-  onApprove,
+  onOpenBubble,
   ready,
   onReady,
 }: {
@@ -50,8 +53,9 @@ export function Stage({
   session: Session | null;
   selectedId: string | null;
   simple: boolean;
+  now: number;
   onSelect: (id: string | null) => void;
-  onApprove: (approvalId: string) => void;
+  onOpenBubble: (bubble: SpeechBubble) => void;
   ready: boolean;
   onReady: () => void;
 }) {
@@ -81,8 +85,9 @@ export function Stage({
               gather={gatherSlot(index, members.length)}
               selected={member.id === selectedId}
               simple={simple}
+              now={now}
               onSelect={() => onSelect(member.id)}
-              onApprove={onApprove}
+              onOpenBubble={onOpenBubble}
             />
           ))}
           <OrbitControls
@@ -114,8 +119,9 @@ function EmployeeFigure({
   gather,
   selected,
   simple,
+  now,
   onSelect,
-  onApprove,
+  onOpenBubble,
 }: {
   member: TeamMemberSpec;
   session: Session | null;
@@ -123,11 +129,12 @@ function EmployeeFigure({
   gather: Slot;
   selected: boolean;
   simple: boolean;
+  now: number;
   onSelect: () => void;
-  onApprove: (approvalId: string) => void;
+  onOpenBubble: (bubble: SpeechBubble) => void;
 }) {
   const pose = employeePose(member, session);
-  const approval = pendingApproval(member, session);
+  const bubbles = speechBubbles(member.id, session, now);
   return (
     <Employee
       member={member}
@@ -136,11 +143,10 @@ function EmployeeFigure({
       gather={gather}
       selected={selected}
       simple={simple}
-      approvalLabel={approval ? approval.tool.replaceAll("_", " ") : null}
+      bubbles={bubbles}
+      now={now}
       onSelect={onSelect}
-      onApprove={() => {
-        if (approval) onApprove(approval.id);
-      }}
+      onOpenBubble={onOpenBubble}
     />
   );
 }

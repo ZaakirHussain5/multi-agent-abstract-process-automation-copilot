@@ -5,6 +5,7 @@ import { Markdown } from "@/components/markdown";
 import { Badge, Button, Dialog, DialogContent, Input, Switch } from "@/components/ui";
 import { createJob, listJobs, listTemplates, runJob, saveTemplate, useTemplate } from "@/lib/api";
 import type { Job, SceneConfig, Session, TeamMemberSpec, Template, ToolInfo } from "@/lib/types";
+import type { SpeechBubble } from "@/world/speech";
 import { PRESET_LABEL, withPreset, withTime } from "@/world/defaults";
 import { employeePose } from "@/world/state";
 
@@ -206,17 +207,21 @@ export function ProfilePanel({
   session,
   member,
   tools,
+  focus,
   onClose,
   onApprove,
   onDeny,
+  onResolveProposal,
   onTeam,
 }: {
   session: Session;
   member: TeamMemberSpec | null;
   tools: ToolInfo[];
+  focus: SpeechBubble | null;
   onClose: () => void;
   onApprove: (id: string) => void;
   onDeny: (id: string) => void;
+  onResolveProposal: (id: string, decision: "approved" | "denied") => void;
   onTeam: (members: TeamMemberSpec[]) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -229,11 +234,63 @@ export function ProfilePanel({
   const events = session.events.filter((event) => event.agent_id === member.id).slice(-8).reverse();
   const deliverables = session.deliverables.filter((item) => item.member_id === member.id);
   const pending = session.approvals.filter((item) => item.agent_id === member.id && item.status === "pending");
+  const proposals = (session.proposals ?? []).filter((item) => item.member_id === member.id);
+  const focusedProposal = focus?.proposalId ? proposals.find((item) => item.id === focus.proposalId) ?? null : null;
+  const focusedApproval = focus?.approvalId ? pending.find((item) => item.id === focus.approvalId) ?? null : null;
+  const spoken = focus && focus.memberId === member.id ? focus : null;
   return (
     <>
       <Dialog open onOpenChange={(next) => (next ? null : onClose())}>
         <DialogContent align="right" title={member.name} description={`${member.role} · ${pose}`}>
           <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-sm">
+            {spoken ? (
+              <section className="rounded-lg border bg-muted/40 p-3">
+                <h3 className="text-[12px] uppercase tracking-wider text-muted-foreground">
+                  {spoken.kind === "suggestion"
+                    ? "Suggestion"
+                    : spoken.kind === "approval"
+                      ? "Approval request"
+                      : spoken.kind === "handoff"
+                        ? "Handoff"
+                        : spoken.kind === "question"
+                          ? "Question"
+                          : "Message"}
+                </h3>
+                <p className="mt-1 font-medium">{spoken.title}</p>
+                <p className="mt-2 whitespace-pre-wrap leading-relaxed">{spoken.full}</p>
+                {focusedProposal ? (
+                  <div className="mt-3">
+                    <p className="text-[12px] text-muted-foreground">
+                      {focusedProposal.side_effect
+                        ? "Approving registers this tool. Each call still waits, because it leaves the workspace."
+                        : "Approving registers this tool for the team. A later call that leaves the workspace still waits."}
+                    </p>
+                    {focusedProposal.status === "pending" ? (
+                      <div className="mt-2 flex gap-2">
+                        <Button type="button" size="sm" onClick={() => onResolveProposal(focusedProposal.id, "approved")}>
+                          Approve and register
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => onResolveProposal(focusedProposal.id, "denied")}>
+                          Reject
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-[12px] text-muted-foreground">This suggestion is {focusedProposal.status}.</p>
+                    )}
+                  </div>
+                ) : null}
+                {focusedApproval ? (
+                  <div className="mt-3 flex gap-2">
+                    <Button type="button" size="sm" onClick={() => onApprove(focusedApproval.id)}>
+                      Approve
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => onDeny(focusedApproval.id)}>
+                      Reject
+                    </Button>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
             <p className="leading-relaxed text-muted-foreground">{member.persona || "No persona yet."}</p>
             <div className="flex flex-wrap gap-1.5">
               {member.expertise.map((item) => (
@@ -250,23 +307,34 @@ export function ProfilePanel({
                 ))}
               </ul>
             </section>
-            {member.proposed_tools.length ? (
-              <section>
-                <h3 className="text-[12px] uppercase tracking-wider text-muted-foreground">Proposed, not in the registry</h3>
-                <ul className="mt-2 space-y-2">
-                  {member.proposed_tools.map((tool) => (
-                    <li key={tool.name}>
-                      <div className="font-mono text-[12px]">{tool.name}</div>
-                      <p className="text-[13px] text-muted-foreground">{tool.reason || tool.description}</p>
-                    </li>
-                  ))}
-                </ul>
+            {proposals.length ? (
+              <section className="space-y-2">
+                <h3 className="text-[12px] uppercase tracking-wider text-muted-foreground">Tool suggestions</h3>
+                {proposals.map((tool) => (
+                  <div key={tool.id} className="rounded-lg border p-3">
+                    <div className="font-mono text-[12px]">{tool.name}</div>
+                    <p className="mt-1 text-[13px] text-muted-foreground">{tool.reason || tool.description}</p>
+                    <p className="mt-1 text-[12px] text-muted-foreground">{tool.status}</p>
+                    {tool.status === "pending" && tool.id !== spoken?.proposalId ? (
+                      <div className="mt-2 flex gap-2">
+                        <Button type="button" size="sm" onClick={() => onResolveProposal(tool.id, "approved")}>
+                          Approve and register
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => onResolveProposal(tool.id, "denied")}>
+                          Reject
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
               </section>
             ) : null}
             {pending.length ? (
               <section className="space-y-2">
                 <h3 className="text-[12px] uppercase tracking-wider text-muted-foreground">Waiting on you</h3>
-                {pending.map((item) => (
+                {pending
+                  .filter((item) => item.id !== spoken?.approvalId)
+                  .map((item) => (
                   <div key={item.id} className="rounded-lg border p-3">
                     <div className="font-medium">{item.tool}</div>
                     <p className="mt-1 text-[13px] text-muted-foreground">{item.reason}</p>
@@ -295,7 +363,7 @@ export function ProfilePanel({
               </ul>
             </section>
             <section className="space-y-3">
-              <h3 className="text-[12px] uppercase tracking-wider text-muted-foreground">Deliverables</h3>
+              <h3 className="text-[12px] uppercase tracking-wider text-muted-foreground">Related deliverables</h3>
               {deliverables.length === 0 ? <p className="text-muted-foreground">Nothing drafted yet.</p> : null}
               {deliverables.map((item) => (
                 <article key={item.id} className="rounded-lg border p-3">

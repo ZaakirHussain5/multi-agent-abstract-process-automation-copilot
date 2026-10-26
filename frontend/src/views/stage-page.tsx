@@ -10,6 +10,7 @@ import {
   getTools,
   interpretScene,
   resolveApproval,
+  resolveProposal,
   runSession,
   saveScene,
   saveTeam,
@@ -18,6 +19,7 @@ import {
 import type { Health, SceneConfig, Session, TeamMemberSpec, ToolInfo } from "@/lib/types";
 import { LOFT, PRESET_LABEL } from "@/world/defaults";
 import { Stage } from "@/world/Stage";
+import { speechBubbles, type SpeechBubble } from "@/world/speech";
 import { graphicsPreference, prefersSimple, supportsWebGL } from "@/world/state";
 
 function roomIntent(text: string): boolean {
@@ -36,6 +38,8 @@ export function StagePage() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [focus, setFocus] = useState<SpeechBubble | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [ready, setReady] = useState(false);
@@ -52,6 +56,11 @@ export function StagePage() {
   }, [id]);
 
   useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     void getTools().then(setTools).catch(() => setTools([]));
     void getHealth().then(setHealth).catch(() => setHealth(null));
   }, []);
@@ -59,6 +68,7 @@ export function StagePage() {
   useEffect(() => {
     setHeld(false);
     setSelectedId(null);
+    setFocus(null);
     setReady(false);
     if (!id) {
       setSession(null);
@@ -169,6 +179,26 @@ export function StagePage() {
     }
   }
 
+  async function decideProposal(proposalId: string, decision: "approved" | "denied") {
+    if (!session) return;
+    try {
+      const next = await resolveProposal(session.id, proposalId, decision);
+      setSession(next);
+      toast.success(decision === "approved" ? "Registered. Outward calls still wait for a yes." : "Suggestion turned down.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not resolve that suggestion");
+    }
+  }
+
+  function openMember(id: string | null) {
+    setSelectedId(id);
+    if (!id) {
+      setFocus(null);
+      return;
+    }
+    setFocus(speechBubbles(id, session, Date.now())[0] ?? null);
+  }
+
   async function decide(approvalId: string, decision: "approved" | "denied") {
     if (!session) return;
     try {
@@ -219,14 +249,21 @@ export function StagePage() {
             session={session}
             selectedId={selectedId}
             simple={simple}
-            onSelect={setSelectedId}
-            onApprove={(approvalId) => void decide(approvalId, "approved")}
+            now={now}
+            onSelect={openMember}
+            onOpenBubble={(bubble) => {
+              setSelectedId(bubble.memberId);
+              setFocus(bubble);
+            }}
             ready={ready}
             onReady={() => setReady(true)}
           />
         </div>
       ) : (
-        <FlatRoom scene={scene} session={session} onSelect={setSelectedId} />
+        <FlatRoom scene={scene} session={session} now={now} onSelect={openMember} onOpenBubble={(bubble) => {
+          setSelectedId(bubble.memberId);
+          setFocus(bubble);
+        }} />
       )}
 
       <header className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-4">
@@ -234,12 +271,16 @@ export function StagePage() {
           <button type="button" onClick={() => navigate("/")} className="text-left">
             <div className="text-[15px] font-medium tracking-tight">Muster</div>
             <div className="text-[11px] text-[#f6efe4]/70">
-              {PRESET_LABEL[scene.preset]} · {scene.time_of_day} · {provider}
+              {session && !session.scene ? "Waiting room" : PRESET_LABEL[scene.preset]} · {scene.time_of_day} · {provider}
               {simple ? " · simple graphics" : ""}
             </div>
           </button>
           {session?.team ? (
             <p className="mt-2 max-w-sm text-[12px] leading-relaxed text-[#f6efe4]/80">{session.team.structure.slice(0, 180)}</p>
+          ) : session?.status === "clarifying" ? (
+            <p className="mt-2 max-w-xs text-[12px] leading-relaxed text-[#f6efe4]/75">
+              Answer the questionnaire. The office is built around the team that comes out of it.
+            </p>
           ) : (
             <p className="mt-2 max-w-xs text-[12px] leading-relaxed text-[#f6efe4]/75">
               An empty room. Describe the work and a team will move in.
@@ -313,9 +354,14 @@ export function StagePage() {
           session={session}
           member={member}
           tools={tools}
-          onClose={() => setSelectedId(null)}
+          focus={focus}
+          onClose={() => {
+            setSelectedId(null);
+            setFocus(null);
+          }}
           onApprove={(approvalId) => void decide(approvalId, "approved")}
           onDeny={(approvalId) => void decide(approvalId, "denied")}
+          onResolveProposal={(proposalId, decision) => void decideProposal(proposalId, decision)}
           onTeam={(members) => void onTeam(members)}
         />
       ) : null}
@@ -326,11 +372,15 @@ export function StagePage() {
 function FlatRoom({
   scene,
   session,
+  now,
   onSelect,
+  onOpenBubble,
 }: {
   scene: SceneConfig;
   session: Session | null;
+  now: number;
   onSelect: (id: string) => void;
+  onOpenBubble: (bubble: SpeechBubble) => void;
 }) {
   const members = session?.team?.members ?? [];
   return (
@@ -344,10 +394,14 @@ function FlatRoom({
       </div>
       <div className="absolute inset-x-0 bottom-36 flex flex-wrap justify-center gap-3 px-6">
         {members.map((member) => (
-          <button
+          <div
             key={member.id}
-            type="button"
+            role="button"
+            tabIndex={0}
             onClick={() => onSelect(member.id)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") onSelect(member.id);
+            }}
             className="rounded-2xl px-3 py-3 text-left text-[#1a140f] shadow"
             style={{ background: scene.palette.wall }}
           >
@@ -357,7 +411,27 @@ function FlatRoom({
             />
             <span className="block text-sm font-medium">{member.name}</span>
             <span className="block text-[12px] opacity-70">{member.role}</span>
-          </button>
+            {speechBubbles(member.id, session, now).map((bubble) => (
+              <button
+                key={bubble.id}
+                type="button"
+                data-speech={bubble.kind}
+                className="mt-2 block max-w-[180px] rounded-xl bg-[#1c140e] px-2 py-1 text-left text-[11px] leading-snug text-[#f6efe4]"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenBubble(bubble);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.stopPropagation();
+                    onOpenBubble(bubble);
+                  }
+                }}
+              >
+                {bubble.short}
+              </button>
+            ))}
+          </div>
         ))}
       </div>
     </div>

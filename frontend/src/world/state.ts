@@ -7,7 +7,9 @@ export type Slot = { x: number; z: number; rot: number };
 
 export function employeePose(member: TeamMemberSpec, session: Session | null): EmployeePose {
   if (!session) return "idle";
-  const waiting = session.approvals.some((item) => item.agent_id === member.id && item.status === "pending");
+  const waiting =
+    session.approvals.some((item) => item.agent_id === member.id && item.status === "pending") ||
+    (session.proposals ?? []).some((item) => item.member_id === member.id && item.status === "pending");
   if (waiting) return "waiting";
   const mine = session.deliverables.filter((item) => item.member_id === member.id);
   const passed = mine.length > 0 && mine.every((item) => item.status === "passed" || item.verification?.passed);

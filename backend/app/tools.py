@@ -93,6 +93,35 @@ class Registry:
         return result
 
 
+def make_registered_tool(proposal) -> Tool:
+    """A session-local tool created when a person approves a suggestion.
+
+    The handler records the call. Side effects are still gated by the runner
+    before this handler runs.
+    """
+
+    name = proposal.name
+    description = proposal.description or f"Approved suggestion {name}."
+    side_effect = bool(proposal.side_effect)
+
+    def handler(args: dict[str, Any], _ctx: ToolContext) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "tool": name,
+            "side_effect": side_effect,
+            "echo": args or {},
+            "note": f"{name} is registered for this session. The call was recorded.",
+        }
+
+    return Tool(
+        name=name,
+        description=description,
+        side_effect=side_effect,
+        parameters={"input": "object"},
+        handler=handler,
+    )
+
+
 def build_registry() -> Registry:
     registry = Registry()
     registry.register(

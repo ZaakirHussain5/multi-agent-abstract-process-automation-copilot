@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from app.models import SceneCamera, SceneConfig, SceneLighting, ScenePalette, SceneProps
+from app.models import SceneCamera, SceneConfig, SceneLighting, ScenePalette, SceneProps, TeamSpec
 from app.spec import topic_label
 
 PresetName = str
@@ -131,6 +131,39 @@ def _build(preset: str, time_of_day: str, *, prompt: str, customized: bool, layo
         source_prompt=prompt.strip(),
         customized=customized,
     )
+
+
+_DOMAIN_PRESET = {
+    "research": "lab",
+    "analysis": "lab",
+    "marketing": "studio",
+    "design": "studio",
+    "writing": "studio",
+    "strategy": "war_room",
+    "library": "library",
+    "engineering": "loft",
+    "sales": "loft",
+    "operations": "loft",
+    "recruiting": "loft",
+    "risk": "library",
+    "general": "loft",
+}
+
+
+def scene_for_team(team: TeamSpec) -> SceneConfig:
+    """Pick one of the six presets from the team Muse just designed.
+
+    The original brief is not scanned again. A launch-shaped prompt stays a
+    loft or a lab when the questionnaire produced a research team.
+    """
+
+    domain = (team.domain or "general").strip().lower()
+    preset = _DOMAIN_PRESET.get(domain, "loft")
+    if preset not in _PALETTES:
+        preset = "loft"
+    time_of_day = _PRESET_TIME[preset]
+    title = (team.name or topic_label(team.mission) or "Muster")[:64]
+    return _build(preset, time_of_day, prompt=title, customized=False)
 
 
 def scene_for_brief(prompt: str) -> SceneConfig:

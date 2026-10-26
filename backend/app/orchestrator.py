@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from pathlib import Path
 from typing import Any
 
@@ -17,9 +18,10 @@ from app.models import (
     TeamMemberSpec,
     TeamSpec,
     Template,
+    ToolProposal,
     Verification,
 )
-from app.scene import scene_for_brief
+from app.scene import scene_for_team
 from app.prompts import (
     act_messages,
     clarify_messages,
@@ -38,7 +40,7 @@ from app.spec import (
     validate_team,
 )
 from app.store import Store, utcnow
-from app.tools import Registry, ToolContext
+from app.tools import Registry, ToolContext, make_registered_tool
 
 
 class APIError(Exception):
@@ -118,6 +120,7 @@ class Orchestrator:
         self._waiters: dict[str, asyncio.Event] = {}
         self._signals: dict[str, dict[str, Any]] = {}
         self._tasks: dict[str, asyncio.Task] = {}
+        self._registered: dict[str, dict[str, Any]] = {}
 
     async def start(self, prompt: str) -> Session:
         prompt = prompt.strip()
@@ -129,7 +132,7 @@ class Orchestrator:
             title=_title(prompt),
             prompt=prompt,
             status="clarifying",
-            scene=scene_for_brief(prompt),
+            scene=None,
             created_at=now,
             updated_at=now,
         )
@@ -164,7 +167,11 @@ class Orchestrator:
         self.store.update_session(session_id, mark)
         try:
             raw = await self.llm.complete(
-                messages=design_messages(session.prompt, normalized),
+                messages=design_messages(
+                    session.prompt,
+                    normalized,
+                    [item.model_dump(mode="json") for item in session.questions],
+                ),
                 model_hint="spark",
                 json_mode=True,
             )
@@ -173,6 +180,14 @@ class Orchestrator:
             self._fail(session_id, f"Could not design a team: {exc}")
             raise APIError(f"Could not design a team: {exc}", 502) from exc
 
+        scene = scene_for_team(team)
+        try:
+            scene.poster_image = await self.llm.image(
+                prompt=f"A poster on the office wall titled {scene.poster_title}. Team: {team.name}."
+            )
+        except Exception:
+            scene.poster_image = ""
+
         def apply(found: Session) -> None:
             found.answers = normalized
             found.team = team
@@ -180,7 +195,8 @@ class Orchestrator:
             found.error = None
             found.summary = team.structure
             if found.scene is None or not found.scene.customized:
-                found.scene = scene_for_brief(found.prompt + "\n" + "\n".join(normalized.values()))
+                found.scene = scene
+            _sync_proposals(found)
 
         return self.store.update_session(session_id, apply)
 
@@ -211,6 +227,58 @@ class Orchestrator:
             found.status = "review"
             found.error = None
             found.summary = team.structure
+            _sync_proposals(found)
+
+        return self.store.update_session(session_id, apply)
+
+    def resolve_proposal(self, session_id: str, proposal_id: str, decision: str) -> Session:
+        if decision not in {"approved", "denied"}:
+            raise APIError("Decision must be approved or denied.")
+        session = self._session(session_id)
+        match = next((item for item in session.proposals if item.id == proposal_id), None)
+        if match is None:
+            raise APIError("That suggestion is not on this session.", 404)
+        if match.status != "pending":
+            raise APIError("That suggestion was already resolved.", 409)
+        if decision == "approved" and session.team is not None:
+            from app.models import ProposedTool
+
+            tool = make_registered_tool(
+                ProposedTool(
+                    name=match.name,
+                    description=match.description,
+                    side_effect=match.side_effect,
+                    reason=match.reason,
+                )
+            )
+            if match.name in self.registry.names():
+                raise APIError("That tool is already in the registry.")
+            self._registered.setdefault(session_id, {})[match.name] = tool
+
+        def apply(found: Session) -> None:
+            proposal = next((item for item in found.proposals if item.id == proposal_id), None)
+            if proposal is None or proposal.status != "pending":
+                return
+            proposal.status = decision  # type: ignore[assignment]
+            if decision == "approved" and found.team is not None:
+                for member in found.team.members:
+                    if member.id == proposal.member_id and proposal.name not in member.allowed_tools:
+                        member.allowed_tools.append(proposal.name)
+            verb = "approved" if decision == "approved" else "turned down"
+            _append(
+                found,
+                kind="note",
+                agent_id=proposal.member_id,
+                agent_name=proposal.member_name,
+                title=f"You {verb} {proposal.name}",
+                body=(
+                    f"{proposal.name} is registered for this session. "
+                    "Calls that leave the workspace still wait for approval."
+                    if decision == "approved"
+                    else proposal.reason
+                ),
+                meta={"proposal_id": proposal.id, "tool": proposal.name},
+            )
 
         return self.store.update_session(session_id, apply)
 
@@ -223,7 +291,7 @@ class Orchestrator:
         existing = self._tasks.get(session_id)
         if existing and not existing.done():
             raise APIError("This team is already running.", 409)
-        errors = validate_team(session.team, self.registry.names())
+        errors = validate_team(session.team, self._known_tools(session_id))
         if errors:
             raise APIError(" ".join(errors))
 
@@ -342,7 +410,7 @@ class Orchestrator:
             prompt=text,
             status="review",
             team=team,
-            scene=scene_for_brief(text),
+            scene=scene_for_team(team),
             summary=team.structure,
             created_at=now,
             updated_at=now,
@@ -568,16 +636,15 @@ class Orchestrator:
                     body="That tool is not on this member's spec.",
                 )
                 continue
-            try:
-                tool = self.registry.get(name)
-            except KeyError:
+            tool = self._lookup_tool(session_id, name)
+            if tool is None:
                 self._emit(
                     session_id,
                     kind="tool_result",
                     agent_id=member.id,
                     agent_name=member.name,
                     title=f"{name} is not registered",
-                    body="Add it to the tool registry before a teammate can call it.",
+                    body="Approve the suggestion before a teammate can call it.",
                 )
                 continue
             session = self._session(session_id)
@@ -628,11 +695,7 @@ class Orchestrator:
                     notes.append(f"{name} was denied.")
                     continue
             try:
-                result = await self.registry.invoke(
-                    name,
-                    call["args"],
-                    ToolContext(session_id=session_id, data_dir=self.data_dir, llm=self.llm),
-                )
+                result = await self._invoke_tool(session_id, name, call["args"])
             except Exception as exc:  # noqa: BLE001
                 self._emit(
                     session_id,
@@ -720,6 +783,31 @@ class Orchestrator:
         except (ValueError, TypeError):
             return ""
 
+    def _known_tools(self, session_id: str) -> set[str]:
+        return self.registry.names() | set(self._registered.get(session_id, {}))
+
+    def _lookup_tool(self, session_id: str, name: str):
+        if name in self.registry.names():
+            return self.registry.get(name)
+        return self._registered.get(session_id, {}).get(name)
+
+    async def _invoke_tool(self, session_id: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        tool = self._lookup_tool(session_id, name)
+        if tool is None:
+            raise KeyError(name)
+        if name in self.registry.names():
+            return await self.registry.invoke(
+                name,
+                args,
+                ToolContext(session_id=session_id, data_dir=self.data_dir, llm=self.llm),
+            )
+        result = tool.handler(args or {}, ToolContext(session_id=session_id, data_dir=self.data_dir, llm=self.llm))
+        if inspect.isawaitable(result):
+            result = await result
+        if not isinstance(result, dict):
+            raise RuntimeError(f"{name} did not return an object.")
+        return result
+
     async def _wait(self, key: str) -> dict[str, Any]:
         if key in self._signals:
             return self._signals.pop(key)
@@ -804,6 +892,37 @@ class Orchestrator:
     async def _pause(self) -> None:
         if self.step_delay > 0:
             await asyncio.sleep(self.step_delay)
+
+
+def _sync_proposals(session: Session) -> None:
+    if session.team is None:
+        return
+    existing = {item.name for item in session.proposals}
+    for member in session.team.members:
+        for tool in member.proposed_tools:
+            if not tool.name or tool.name in existing:
+                continue
+            session.proposals.append(
+                ToolProposal(
+                    id=new_id("prop"),
+                    member_id=member.id,
+                    member_name=member.name,
+                    name=tool.name,
+                    description=tool.description,
+                    side_effect=tool.side_effect,
+                    reason=tool.reason,
+                )
+            )
+            existing.add(tool.name)
+            _append(
+                session,
+                kind="plan",
+                agent_id=member.id,
+                agent_name=member.name,
+                title=f"Suggests {tool.name}",
+                body=tool.reason or tool.description,
+                meta={"proposal_name": tool.name, "side_effect": tool.side_effect},
+            )
 
 
 def _append(session: Session, **kwargs: Any) -> None:

@@ -1,8 +1,10 @@
 """Team-spec logic that does not depend on a live model.
 
-Roles are invented from the words of the brief. A small set of work signals
-only decides the domain, the deliverable kind, and which registry tools the
-person may call. There is no catalog of job titles.
+Roles are invented from the clarifying questionnaire: the brief, the questions,
+and the user's answers. Decisive answers are read first and can overrule a
+keyword in the brief. A small set of work signals only decides the domain, the
+deliverable kind, and which registry tools the person may call. There is no
+catalog of job titles.
 """
 
 from __future__ import annotations
@@ -373,6 +375,78 @@ def _criteria(topic: str, kind: str, title: str) -> list[str]:
     ]
 
 
+def _deferral(text: str) -> bool:
+    lowered = text.lower()
+    return "no preference" in lowered or "use your judgment" in lowered or "use your judgement" in lowered
+
+
+def decisive_answers(answers: dict[str, str] | None) -> list[str]:
+    """Answers that actually decide something. Deferrals are not decisions."""
+
+    lines: list[str] = []
+    for value in (answers or {}).values():
+        text = " ".join(str(value).split())
+        if not text or _deferral(text):
+            continue
+        lines.append(text)
+    return lines
+
+
+def _phrase_words(text: str) -> list[str]:
+    words: list[str] = []
+    seen: set[str] = set()
+    for chunk in re.split(r"[\n]+", text):
+        for word in _content_words(chunk):
+            key = word.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            words.append(word)
+    return words or ["brief"]
+
+
+def _signals_for(text: str) -> list[WorkSignal]:
+    """Read the questionnaire text for which kinds of work were actually asked for."""
+
+    ranked = [signal for score, signal in _rank_signals(text.lower()) if score > 0]
+    lowered = text.lower()
+    kept: list[WorkSignal] = []
+    for signal in ranked:
+        if signal.key == "engineering" and re.search(
+            r"\b(no|not|without|don't|do not)\b.{0,40}\bcode\b", lowered
+        ):
+            continue
+        if signal.key == "marketing" and re.search(
+            r"\b(no|not|without|n't)\b.{0,40}\b(campaign|marketing)\b", lowered
+        ):
+            continue
+        kept.append(signal)
+    return kept
+
+
+def _reasoned_title(words: list[str], index: int) -> str:
+    primary = words[index % len(words)]
+    secondary = words[(index + 1) % len(words)]
+    if secondary.lower() == primary.lower():
+        # A one-word answer still needs a distinct seat when the team grows.
+        if index == 0:
+            return f"{primary.title()} partner"
+        return f"{primary.title()} partner {index + 1}"
+    return f"{primary.title()} {secondary.lower()} partner"
+
+
+def _persona_from(name: str, role: str, heard: str) -> str:
+    if heard:
+        return (
+            f"{name} is the {role} because the questionnaire said “{_clip(heard, 180)}”. "
+            "They will not widen the work past that answer."
+        )
+    return (
+        f"{name} is the {role}. The questionnaire left the outcome open, "
+        "so this seat follows the brief the user originally wrote."
+    )
+
+
 def _employee(
     signal: WorkSignal,
     *,
@@ -381,11 +455,13 @@ def _employee(
     mission: str,
     lead_id: str | None,
     index: int,
+    role: str | None = None,
+    heard: str = "",
     craft: str | None = None,
 ) -> TeamMemberSpec:
-    seed = f"{mission}|{signal.key}|{craft or signal.craft}|{index}"
+    seed = f"{mission}|{signal.key}|{role or craft or signal.craft}|{index}"
     digest = _hash(seed)
-    role = _role_title(words, craft or signal.craft, index)
+    role = role or _reasoned_title(words, index)
     tools = list(signal.tools)
     # Marketing briefs that are really about a look still use Muse Image.
     # Code stays off unless the signal itself is the engineering or analysis lane.
@@ -416,49 +492,62 @@ def _employee(
         model_hint=hint,
         reports_to=lead_id,
         avatar_hue=(digest[2] * 360) // 256,
-        persona=_persona(pick_name(seed), role, topic, tools),
+        persona=_persona_from(pick_name(seed), role, heard),
         silhouette=_silhouette(digest),  # type: ignore[arg-type]
         proposed_tools=[],
     )
 
 
-def design_team(prompt: str, answers: dict[str, str] | None = None) -> TeamSpec:
-    """Invent a team from the brief and the clarifying answers.
+def design_team(
+    prompt: str,
+    answers: dict[str, str] | None = None,
+    questions: list[dict] | None = None,
+) -> TeamSpec:
+    """Mock stand-in for Muse designing a team from the questionnaire.
 
-    Team size, role titles, expertise, and each person's tools come from that
-    text. Role titles use the brief's own words. Tools are chosen from the
-    registry by the kind of work the brief describes, and the lead proposes
-    one tool the registry does not have yet.
+    Decisive answers are read first. The brief is used only where an answer
+    deferred ("no preference") or never mentioned the point. Job titles and
+    personas quote that reading. Tools follow the same reading, including
+    when an answer rules a kind of work out.
     """
 
     answers = answers or {}
-    answer_text = "\n".join(answers.values())
-    brief = f"{prompt}\n{answer_text}".strip()
+    heard = decisive_answers(answers)
+    # Titles and personas quote the answers. The brief is the fallback only
+    # when every answer deferred or the questionnaire was never shown.
+    title_source = "\n".join(heard) if heard else prompt
+    # Domain and tools read the whole questionnaire. A negation in an answer
+    # ("do not write code", "not a campaign") drops that lane even if the
+    # brief named it.
+    signal_source = "\n".join([prompt, *heard]) if heard else prompt
     topic = topic_label(prompt)
-    words = _content_words(prompt)
-    cap = specialist_cap(answer_text + "\n" + prompt)
-    chosen = [signal for score, signal in _rank_signals(brief.lower()) if score > 0][:cap]
+    words = _phrase_words(title_source)
+    # Size is an answer, not a word that happened to appear in the brief.
+    cap = specialist_cap("\n".join(answers.values()))
+    chosen = _signals_for(signal_source)[:cap]
     domain = chosen[0].key if chosen else "general"
 
     mission = prompt.strip()
-    if answer_text.strip():
-        mission = prompt.strip() + "\n\nConstraints and answers:\n" + answer_text.strip()
+    if heard:
+        mission = prompt.strip() + "\n\nFrom the questionnaire:\n" + "\n".join(f"- {line}" for line in heard)
 
     lead_seed = f"lead|{mission}"
     lead_digest = _hash(lead_seed)
     lead_id = f"m_{lead_digest.hex()[:10]}"
     lead_name = pick_name(lead_seed)
     lead_tools = ["web_search", "notes"]
+    lead_role = _reasoned_title(words, 0).replace(" partner", " lead")
     lead_title = f"Team plan: {topic}"
-    proposal = _proposed_tool(topic)
+    proposal = _proposed_tool(heard[0] if heard else topic)
+    lead_heard = heard[0] if heard else ""
     lead = TeamMemberSpec(
         id=lead_id,
         name=lead_name,
-        role="Team Lead",
+        role=lead_role,
         expertise=[topic, "framing", "coordination", "review"],
         responsibilities=[
             "Frame the mission so every teammate can challenge it.",
-            "Sequence handoffs and keep the open questions visible.",
+            "Keep the questionnaire visible when the work starts to drift.",
             "Refuse a deliverable that does not meet its acceptance criteria.",
         ],
         deliverables=[
@@ -475,22 +564,42 @@ def design_team(prompt: str, answers: dict[str, str] | None = None) -> TeamSpec:
         model_hint="spark",
         reports_to=None,
         avatar_hue=(lead_digest[2] * 360) // 256,
-        persona=_persona(lead_name, "Team Lead", topic, lead_tools),
+        persona=_persona_from(lead_name, lead_role, lead_heard),
         silhouette=_silhouette(lead_digest),  # type: ignore[arg-type]
         proposed_tools=[proposal],
     )
 
     specialists: list[TeamMemberSpec] = []
     used_roles = {lead.role.lower()}
+
+    def take_role(index: int) -> str:
+        role = _reasoned_title(words, index + 1)
+        bump = 0
+        while role.lower() in used_roles and bump < 6:
+            bump += 1
+            role = _reasoned_title(words, index + 1 + bump)
+        return role
+
     for index, signal in enumerate(chosen):
-        member = _employee(signal, words=words, topic=topic, mission=mission, lead_id=lead_id, index=index)
-        if member.role.lower() in used_roles:
-            member.role = _role_title(words, signal.craft, index + len(words))
+        role = take_role(index)
+        line = heard[index % len(heard)] if heard else ""
+        member = _employee(
+            signal,
+            words=words,
+            topic=topic,
+            mission=mission,
+            lead_id=lead_id,
+            index=index,
+            role=role,
+            heard=line,
+        )
         used_roles.add(member.role.lower())
         specialists.append(member)
 
     slot = 0
     while len(specialists) < min(2, cap):
+        role = take_role(len(specialists) + slot)
+        line = heard[(len(specialists) + slot) % len(heard)] if heard else ""
         member = _employee(
             _GENERAL,
             words=words,
@@ -498,7 +607,8 @@ def design_team(prompt: str, answers: dict[str, str] | None = None) -> TeamSpec:
             mission=mission,
             lead_id=lead_id,
             index=len(specialists) + slot,
-            craft="scope note" if slot % 2 == 0 else "second look",
+            role=role,
+            heard=line,
         )
         slot += 1
         if member.role.lower() in used_roles:
@@ -508,8 +618,9 @@ def design_team(prompt: str, answers: dict[str, str] | None = None) -> TeamSpec:
         used_roles.add(member.role.lower())
         specialists.append(member)
 
-    # A comprehensive ask gets one more lane when the brief matched few signals.
     if cap >= 4 and len(specialists) < cap:
+        role = take_role(len(specialists) + 3)
+        line = heard[-1] if heard else ""
         extra = _employee(
             _GENERAL,
             words=words,
@@ -517,21 +628,28 @@ def design_team(prompt: str, answers: dict[str, str] | None = None) -> TeamSpec:
             mission=mission,
             lead_id=lead_id,
             index=len(specialists) + 3,
-            craft="review pass",
+            role=role,
+            heard=line,
         )
         if extra.role.lower() not in used_roles:
             specialists.append(extra)
 
     members = [lead, *specialists]
+    question_bits = []
+    for item in questions or []:
+        if isinstance(item, dict) and item.get("prompt"):
+            question_bits.append(str(item["prompt"]).strip())
+    heard_bits = " ".join(f"Heard “{line}”." for line in heard) or "The questionnaire left the outcome to the brief."
+    asked = (" Asked: " + " ".join(question_bits)) if question_bits else ""
     structure_bits = [
-        f"{lead.name} leads {topic} and checks every deliverable against its acceptance criteria."
+        f"{lead.name} ({lead.role}) holds the team to the questionnaire. {heard_bits}{asked}"
     ]
     for member in specialists:
         structure_bits.append(
             f"{member.name} ({member.role}) reports to {lead.name} and owns “{member.deliverables[0].title}”."
         )
     structure_bits.append(
-        f"The lead proposed {proposal.name} because the registry has no memory of this brief. "
+        f"{lead.name} suggests {proposal.name}, which is not registered until someone approves it. "
         "Teammates plan, challenge assumptions, hand work across, and verify on their own. "
         "A person is asked only when a tool would leave the workspace."
     )

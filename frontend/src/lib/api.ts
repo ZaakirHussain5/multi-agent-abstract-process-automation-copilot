@@ -50,6 +50,11 @@ export const interpretScene = (prompt: string, base?: SceneConfig | null) =>
   api<SceneConfig>("/api/scene", { method: "POST", body: JSON.stringify({ prompt, base: base ?? null }) });
 export const saveScene = (id: string, scene: SceneConfig) =>
   api<Session>(`/api/sessions/${id}/scene`, { method: "PUT", body: JSON.stringify(scene) });
+export const resolveProposal = (sessionId: string, proposalId: string, decision: "approved" | "denied") =>
+  api<Session>(`/api/sessions/${sessionId}/proposals/${proposalId}`, {
+    method: "POST",
+    body: JSON.stringify({ decision }),
+  });
 export const resolveApproval = (
   sessionId: string,
   approvalId: string,

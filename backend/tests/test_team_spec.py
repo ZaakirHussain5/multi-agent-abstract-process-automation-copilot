@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from app.scene import scene_for_team
 from app.spec import (
     DEFAULT_TOOLS,
     design_team,
@@ -73,6 +74,40 @@ def test_answers_change_team_size():
     small = design_team(prompt, {"q2": "Keep the team small"})
     large = design_team(prompt, {"q2": "Be comprehensive"})
     assert len(large.members) > len(small.members)
+
+
+def test_questionnaire_answers_override_the_brief():
+    launch = "Launch the product on Friday"
+    questions = [{"id": "q1", "prompt": "What does a successful outcome look like?"}]
+    research_answers = {
+        "q1": "The outcome is a research read of the lab notes, not a campaign. Do not write code.",
+        "q2": "Keep the team small.",
+    }
+    research = design_team(launch, research_answers, questions)
+    assert research.domain == "research"
+    blob = " ".join(f"{member.persona} {member.role}" for member in research.members).lower()
+    assert "lab notes" in blob
+    assert "questionnaire said" in blob
+    assert all("code_execute" not in member.allowed_tools for member in research.members)
+    assert all(member.model_hint != "code" for member in research.members)
+    assert "heard" in research.structure.lower()
+    assert "successful outcome" in research.structure.lower()
+    assert scene_for_team(research).preset == "lab"
+    assert "launch" in research.mission.lower()
+
+    campaign = design_team(
+        "Investigate the lab notes from last quarter",
+        {
+            "q1": "The outcome is a public brand campaign for a coffee subscription. Do not write code. Be comprehensive.",
+        },
+    )
+    assert campaign.domain in {"marketing", "design", "writing"}
+    personas = " ".join(member.persona for member in campaign.members).lower()
+    assert "coffee" in personas
+    assert all("code_execute" not in member.allowed_tools for member in campaign.members)
+    assert all(member.model_hint != "code" for member in campaign.members)
+    assert scene_for_team(campaign).preset == "studio"
+    assert len(campaign.members) > len(research.members)
 
 
 def test_yaml_and_json_roundtrip():

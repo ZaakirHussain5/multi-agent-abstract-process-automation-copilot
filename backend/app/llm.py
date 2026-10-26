@@ -49,15 +49,30 @@ class MockProvider:
             prompt = _after(user, "USER_PROMPT:\n")
             return json.dumps(heuristic_questions(prompt))
         if "TASK: design" in system:
-            prompt = _between(user, "USER_PROMPT:\n", "\n\nANSWERS_JSON:\n")
+            if "QUESTIONNAIRE_JSON:\n" in user:
+                prompt = _between(user, "USER_PROMPT:\n", "\n\nQUESTIONNAIRE_JSON:\n")
+                questions_raw = _between(user, "QUESTIONNAIRE_JSON:\n", "\n\nANSWERS_JSON:\n")
+            else:
+                prompt = _between(user, "USER_PROMPT:\n", "\n\nANSWERS_JSON:\n")
+                questions_raw = "[]"
             answers_raw = _after(user, "ANSWERS_JSON:\n")
             try:
                 answers = json.loads(answers_raw) if answers_raw else {}
             except json.JSONDecodeError:
                 answers = {}
+            try:
+                questions = json.loads(questions_raw) if questions_raw else []
+            except json.JSONDecodeError:
+                questions = []
             if not isinstance(answers, dict):
                 answers = {}
-            team = design_team(prompt, {str(k): str(v) for k, v in answers.items()})
+            if not isinstance(questions, list):
+                questions = []
+            team = design_team(
+                prompt,
+                {str(k): str(v) for k, v in answers.items()},
+                [item for item in questions if isinstance(item, dict)],
+            )
             return team.model_dump_json()
         if "TASK: scene" in system:
             prompt = _between(user, "USER_PROMPT:\n", "\n\nCURRENT_SCENE_JSON:\n")

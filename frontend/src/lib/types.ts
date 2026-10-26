@@ -100,6 +100,17 @@ export type ActivityEvent = {
   meta: Record<string, unknown>;
 };
 
+export type ToolProposal = {
+  id: string;
+  member_id: string;
+  member_name: string;
+  name: string;
+  description: string;
+  side_effect: boolean;
+  reason: string;
+  status: "pending" | "approved" | "denied";
+};
+
 export type Approval = {
   id: string;
   agent_id: string;
@@ -152,6 +163,7 @@ export type Session = {
   scene: SceneConfig | null;
   events: ActivityEvent[];
   approvals: Approval[];
+  proposals: ToolProposal[];
   deliverables: DeliverableResult[];
   open_questions: OpenQuestion[];
   approve_all: boolean;

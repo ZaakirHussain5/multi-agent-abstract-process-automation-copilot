@@ -4,6 +4,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { TeamMemberSpec } from "@/lib/types";
 import type { EmployeePose, Slot } from "@/world/state";
+import { bubbleOpacity, type SpeechBubble } from "@/world/speech";
 
 const POSE_LABEL: Record<EmployeePose, string> = {
   idle: "At their desk",
@@ -21,9 +22,10 @@ export function Employee({
   gather,
   selected,
   simple,
-  approvalLabel,
+  bubbles,
+  now,
   onSelect,
-  onApprove,
+  onOpenBubble,
 }: {
   member: TeamMemberSpec;
   pose: EmployeePose;
@@ -31,9 +33,10 @@ export function Employee({
   gather: Slot;
   selected: boolean;
   simple: boolean;
-  approvalLabel: string | null;
+  bubbles: SpeechBubble[];
+  now: number;
   onSelect: () => void;
-  onApprove: () => void;
+  onOpenBubble: (bubble: SpeechBubble) => void;
 }) {
   const group = useRef<THREE.Group>(null);
   const arm = useRef<THREE.Group>(null);
@@ -111,22 +114,29 @@ export function Employee({
           <meshBasicMaterial color="#7dcea0" />
         </mesh>
       ) : null}
-      {pose === "waiting" && approvalLabel ? (
-        <Html position={[0.15, 1.85, 0]} center zIndexRange={[30, 0]} distanceFactor={8}>
-          <button
-            type="button"
-            className="rounded-full border border-white/20 bg-[#1c140e]/90 px-3 py-1.5 text-[12px] font-medium text-[#f6efe4] shadow-lg"
-            onClick={(event) => {
-              event.stopPropagation();
-              onApprove();
-            }}
-          >
-            Approve {approvalLabel}
-          </button>
+      {bubbles.length ? (
+        <Html position={[0.12, 1.78, 0]} center zIndexRange={[40, 0]} distanceFactor={7}>
+          <div className="flex flex-col items-start gap-1.5">
+            {bubbles.map((bubble) => (
+              <button
+                key={bubble.id}
+                type="button"
+                data-speech={bubble.kind}
+                className="pointer-events-auto max-w-[180px] rounded-2xl rounded-bl-md border border-white/20 bg-[#1c140e]/92 px-2.5 py-1.5 text-left text-[11px] leading-snug text-[#f6efe4] shadow-lg"
+                style={{ opacity: bubbleOpacity(bubble, now) }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenBubble(bubble);
+                }}
+              >
+                {bubble.short}
+              </button>
+            ))}
+          </div>
         </Html>
       ) : null}
-      {selected || pose === "waiting" ? (
-        <Html position={[0, pose === "waiting" ? 2.15 : 1.72, 0]} center zIndexRange={[20, 0]} distanceFactor={8}>
+      {selected && bubbles.length === 0 ? (
+        <Html position={[0, 1.72, 0]} center zIndexRange={[20, 0]} distanceFactor={8}>
           <div className="pointer-events-none whitespace-nowrap rounded-full bg-[#1c140e]/80 px-2.5 py-1 text-center text-[11px] text-[#f6efe4] shadow">
             <div className="font-medium">{member.name}</div>
             <div className="text-[10px] text-[#e7d3bc]">{POSE_LABEL[pose]}</div>

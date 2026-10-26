@@ -200,6 +200,11 @@ def create_app(settings: Settings | None = None, *, step_delay: float | None = N
         session = request.app.state.orch.start_run(session_id)
         return session.model_dump(mode="json")
 
+    @app.post("/api/sessions/{session_id}/proposals/{proposal_id}")
+    def resolve_proposal(session_id: str, proposal_id: str, body: ApprovalIn, request: Request) -> dict[str, Any]:
+        session = request.app.state.orch.resolve_proposal(session_id, proposal_id, body.decision)
+        return session.model_dump(mode="json")
+
     @app.post("/api/sessions/{session_id}/approvals/{approval_id}")
     def approve(session_id: str, approval_id: str, body: ApprovalIn, request: Request) -> dict[str, Any]:
         session = request.app.state.orch.resolve_approval(
