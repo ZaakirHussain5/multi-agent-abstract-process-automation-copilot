@@ -65,6 +65,7 @@ export function Employee({
   });
 
   const bubbleY = member.silhouette === "compact" ? 1.35 : member.silhouette === "tall" ? 1.85 : 1.55;
+  const body = member.silhouette === "compact" ? 0.9 : member.silhouette === "tall" ? 1.5 : 1.2;
   return (
     <group
       ref={group}
@@ -74,6 +75,11 @@ export function Employee({
         onSelect();
       }}
     >
+      {/* The rig's tiny bone scale makes mesh raycasts miss. This collider is the click target. */}
+      <mesh position={[0, body * 0.48, 0]}>
+        <cylinderGeometry args={[0.32, 0.38, body, 8]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
       <Robot member={member} pose={pose} moving={moving} simple={simple} />
       {pose === "done" ? (
         <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
