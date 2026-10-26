@@ -250,6 +250,7 @@ export function StagePage() {
             selectedId={selectedId}
             simple={simple}
             now={now}
+            flyToken={`${session?.id ?? "lobby"}:${scene.preset}:${scene.time_of_day}:${scene.layout}`}
             onSelect={openMember}
             onOpenBubble={(bubble) => {
               setSelectedId(bubble.memberId);

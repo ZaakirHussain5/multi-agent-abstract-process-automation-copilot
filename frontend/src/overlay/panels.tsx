@@ -25,7 +25,7 @@ export function QuestionsCard({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   return (
     <form
-      className="pointer-events-auto w-[min(440px,calc(100vw-1.5rem))] rounded-2xl border border-white/15 bg-[#1a140f]/85 p-4 text-[#f6efe4] shadow-2xl backdrop-blur-md"
+      className="pointer-events-auto w-[min(440px,calc(100vw-1.5rem))] rounded-2xl border border-white/30 bg-[#1a140f]/70 p-4 font-sans text-[#f6efe4] shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-xl"
       onSubmit={(event) => {
         event.preventDefault();
         const filled: Record<string, string> = {};
@@ -241,7 +241,12 @@ export function ProfilePanel({
   return (
     <>
       <Dialog open onOpenChange={(next) => (next ? null : onClose())}>
-        <DialogContent align="right" title={member.name} description={`${member.role} · ${pose}`}>
+        <DialogContent
+          align="right"
+          title={member.name}
+          description={`${member.role} · ${pose}`}
+          className="border-white/50 bg-popover/88 shadow-[0_24px_80px_rgba(20,16,12,0.35)] backdrop-blur-xl"
+        >
           <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-sm">
             {spoken ? (
               <section className="rounded-lg border bg-muted/40 p-3">

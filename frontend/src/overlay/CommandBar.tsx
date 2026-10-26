@@ -39,7 +39,7 @@ export function CommandBar({
 
   return (
     <form
-      className="pointer-events-auto flex w-[min(720px,calc(100vw-1.5rem))] items-center gap-2 rounded-full border border-white/15 bg-[#1a140f]/80 p-1.5 shadow-2xl backdrop-blur-md"
+      className="pointer-events-auto flex w-[min(720px,calc(100vw-1.5rem))] items-center gap-2 rounded-full border border-white/30 bg-[#1a140f]/55 p-1.5 font-sans shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-xl"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();
