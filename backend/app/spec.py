@@ -393,15 +393,30 @@ def decisive_answers(answers: dict[str, str] | None) -> list[str]:
 
 
 def _phrase_words(text: str) -> list[str]:
+    """Content words from the whole questionnaire answer, in order.
+
+    A leading "not" drops the next content word so "do not write code" does
+    not become a job title about code. Stop-words stay out. Nothing is cut
+    at the first comma, so "lab notes" later in the sentence can still name a seat.
+    """
+
     words: list[str] = []
     seen: set[str] = set()
-    for chunk in re.split(r"[\n]+", text):
-        for word in _content_words(chunk):
-            key = word.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            words.append(word)
+    skip_content = False
+    for token in re.findall(r"[A-Za-z][A-Za-z0-9+'-]*", text):
+        key = token.lower()
+        if key in {"no", "not", "without", "dont", "don't"}:
+            skip_content = True
+            continue
+        if key in _STOP or len(key) < 3:
+            continue
+        if skip_content:
+            skip_content = False
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        words.append(token)
     return words or ["brief"]
 
 
