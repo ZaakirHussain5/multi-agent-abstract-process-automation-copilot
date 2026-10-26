@@ -1,4 +1,4 @@
-import type { Health, Job, Session, SessionBrief, Template, ToolInfo } from "./types";
+import type { Health, Job, SceneConfig, Session, SessionBrief, Template, ToolInfo } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -46,6 +46,10 @@ export const submitAnswers = (id: string, answers: Record<string, string>) =>
 export const saveTeam = (id: string, team: Session["team"]) =>
   api<Session>(`/api/sessions/${id}/team`, { method: "PUT", body: JSON.stringify(team) });
 export const runSession = (id: string) => api<Session>(`/api/sessions/${id}/run`, { method: "POST" });
+export const interpretScene = (prompt: string, base?: SceneConfig | null) =>
+  api<SceneConfig>("/api/scene", { method: "POST", body: JSON.stringify({ prompt, base: base ?? null }) });
+export const saveScene = (id: string, scene: SceneConfig) =>
+  api<Session>(`/api/sessions/${id}/scene`, { method: "PUT", body: JSON.stringify(scene) });
 export const resolveApproval = (
   sessionId: string,
   approvalId: string,

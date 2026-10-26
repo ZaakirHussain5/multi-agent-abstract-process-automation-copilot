@@ -1,8 +1,8 @@
 """Team-spec logic that does not depend on a live model.
 
-The designer is domain-general: it scores a catalog of role archetypes against
-the brief and the user's answers, then pads with specialists named from the
-brief itself when nothing in the catalog fits. It never assumes one scenario.
+Roles are invented from the words of the brief. A small set of work signals
+only decides the domain, the deliverable kind, and which registry tools the
+person may call. There is no catalog of job titles.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from app.models import (
     DeliverableSpec,
     ModelHint,
     PermissionLevel,
+    ProposedTool,
     TeamMemberSpec,
     TeamSpec,
 )
@@ -87,164 +88,142 @@ _STOP = {
 
 
 @dataclass(frozen=True)
-class Archetype:
+class WorkSignal:
+    """A reason to staff someone. The role title is not stored here."""
+
     key: str
-    role: str
-    domain: str
-    expertise: tuple[str, ...]
     triggers: tuple[str, ...]
     tools: tuple[str, ...]
     permission: PermissionLevel
     model_hint: ModelHint
     kind: DeliverableKind
+    craft: str
     focus: str
-    question: str
 
 
-ARCHETYPES: tuple[Archetype, ...] = (
-    Archetype(
-        key="research",
-        role="Researcher",
-        domain="research",
-        expertise=("source synthesis", "competitive scans", "evidence grading"),
-        triggers=("research", "investigate", "analysis", "analyze", "market", "competitor", "landscape", "study", "literature"),
-        tools=("web_search", "notes"),
-        permission="act_with_approval",
-        model_hint="spark",
-        kind="research",
-        focus="separate what is known from what is only assumed",
-        question="Which decision should the research actually change, and how current do sources need to be?",
-    ),
-    Archetype(
+# Signals choose tools and a domain. They are not roles.
+WORK_SIGNALS: tuple[WorkSignal, ...] = (
+    WorkSignal(
         key="engineering",
-        role="Engineer",
-        domain="engineering",
-        expertise=("api design", "implementation", "testing"),
-        triggers=("engineer", "engineering", "code", "api", "software", "backend", "frontend", "bug", "implement", "app", "script"),
+        triggers=("engineer", "engineering", "code", "api", "software", "backend", "frontend", "bug", "implement", "script"),
         tools=("code_execute", "file_write", "notes"),
         permission="act_with_approval",
         model_hint="code",
         kind="code",
+        craft="working build",
         focus="turn the brief into something that runs and can be checked",
-        question="What should be true in a first version, and what must stay out of it?",
     ),
-    Archetype(
+    WorkSignal(
+        key="marketing",
+        triggers=("marketing", "campaign", "brand", "content", "launch", "seo", "audience", "social"),
+        tools=("web_search", "notes", "file_write", "image_generate"),
+        permission="act_with_approval",
+        model_hint="image",
+        kind="document",
+        craft="public voice",
+        focus="say one sharp thing to a specific audience",
+    ),
+    WorkSignal(
         key="design",
-        role="Designer",
-        domain="design",
-        expertise=("visual systems", "narrative framing", "critique"),
-        triggers=("design", "brand", "visual", "logo", "ui", "interface", "illustration", "packaging", "creative"),
+        triggers=("visual", "logo", "ui", "interface", "illustration", "packaging", "creative"),
         tools=("image_generate", "file_write", "notes"),
         permission="act_with_approval",
         model_hint="image",
         kind="image",
+        craft="visual frame",
         focus="make the idea legible at a glance",
-        question="Where will people see this first, and what should they feel in that moment?",
     ),
-    Archetype(
-        key="marketing",
-        role="Marketer",
-        domain="marketing",
-        expertise=("positioning", "campaign design", "message testing"),
-        triggers=("marketing", "campaign", "brand", "content", "launch", "seo", "copy", "audience", "social"),
-        tools=("web_search", "notes", "file_write"),
-        permission="act_with_approval",
-        model_hint="spark",
-        kind="document",
-        focus="say one sharp thing to a specific audience",
-        question="Who is the message for, and what should they do after they hear it?",
-    ),
-    Archetype(
+    WorkSignal(
         key="sales",
-        role="Account Strategist",
-        domain="sales",
-        expertise=("pipeline design", "offer structure", "objection handling"),
         triggers=("sales", "pipeline", "leads", "deal", "outbound", "revenue", "quota", "crm", "customers"),
         tools=("web_search", "notes"),
         permission="act_with_approval",
         model_hint="spark",
         kind="plan",
+        craft="buyer path",
         focus="define the offer, the buyer, and the next conversation",
-        question="What counts as a qualified opportunity, and how are deals won today?",
     ),
-    Archetype(
+    WorkSignal(
+        key="research",
+        triggers=("research", "investigate", "analyze", "competitor", "landscape", "study", "literature"),
+        tools=("web_search", "notes"),
+        permission="act_with_approval",
+        model_hint="spark",
+        kind="research",
+        craft="evidence pass",
+        focus="separate what is known from what is only assumed",
+    ),
+    WorkSignal(
+        key="analysis",
+        triggers=("metric", "metrics", "forecast", "dashboard", "kpi", "finance", "pricing", "conversion", "churn"),
+        tools=("code_execute", "notes"),
+        permission="act_with_approval",
+        model_hint="spark",
+        kind="data",
+        craft="measure pass",
+        focus="define the number before arguing about it",
+    ),
+    WorkSignal(
         key="recruiting",
-        role="Recruiter",
-        domain="recruiting",
-        expertise=("role design", "loop structure", "candidate narrative"),
-        triggers=("hire", "hiring", "recruit", "recruiting", "candidate", "talent", "interview", "job description"),
+        triggers=("hire", "hiring", "recruit", "recruiting", "candidate", "talent", "interview"),
         tools=("web_search", "notes", "file_write"),
         permission="act_with_approval",
         model_hint="spark",
         kind="document",
-        focus="make the role and the loop unambiguous",
-        question="What must a strong candidate prove, and what would make you pass?",
+        craft="search loop",
+        focus="make the search and the loop unambiguous",
     ),
-    Archetype(
+    WorkSignal(
         key="operations",
-        role="Operations Partner",
-        domain="operations",
-        expertise=("process design", "failure modes", "handoffs"),
         triggers=("operations", "process", "workflow", "logistics", "sop", "runbook", "warehouse", "oncall", "on-call"),
         tools=("notes", "file_write"),
         permission="act_with_approval",
         model_hint="spark",
         kind="plan",
+        craft="handoff map",
         focus="find where work waits, breaks, or gets redone",
-        question="Where does the work stall today, and what does a clean handoff look like?",
     ),
-    Archetype(
-        key="analysis",
-        role="Analyst",
-        domain="analysis",
-        expertise=("metric definition", "comparison", "forecast sanity"),
-        triggers=("data", "metric", "metrics", "forecast", "dashboard", "kpi", "finance", "pricing", "conversion", "churn"),
-        tools=("code_execute", "notes"),
-        permission="act_with_approval",
-        model_hint="spark",
-        kind="data",
-        focus="define the number before arguing about it",
-        question="Which metric matters, and what comparison would change your mind?",
-    ),
-    Archetype(
+    WorkSignal(
         key="writing",
-        role="Writer",
-        domain="writing",
-        expertise=("structure", "tone", "editing"),
-        triggers=("write", "writing", "blog", "report", "whitepaper", "documentation", "narrative", "essay", "copywriting"),
+        triggers=("writing", "blog", "report", "whitepaper", "documentation", "narrative", "essay", "copywriting"),
         tools=("notes", "file_write"),
         permission="draft",
         model_hint="spark",
         kind="document",
+        craft="readable draft",
         focus="package the team's thinking so a stranger can use it",
-        question="Who will read this, and what should they be able to do when they finish?",
     ),
-    Archetype(
+    WorkSignal(
         key="risk",
-        role="Risk Partner",
-        domain="risk",
-        expertise=("downside mapping", "policy constraints", "review"),
         triggers=("legal", "compliance", "policy", "risk", "contract", "privacy", "security", "safety"),
         tools=("notes", "web_search"),
         permission="draft",
         model_hint="spark",
         kind="document",
+        craft="downside note",
         focus="name the downside before the team commits",
-        question="What outcome is unacceptable, even if everything else works?",
     ),
-    Archetype(
+    WorkSignal(
         key="strategy",
-        role="Strategist",
-        domain="strategy",
-        expertise=("framing", "sequencing", "tradeoffs"),
-        triggers=("strategy", "roadmap", "prioritize", "priority", "bet", "portfolio"),
+        triggers=("strategy", "roadmap", "prioritize", "priority", "portfolio"),
         tools=("notes", "web_search"),
         permission="act_with_approval",
         model_hint="spark",
         kind="plan",
+        craft="cut list",
         focus="choose what not to do",
-        question="What are you willing to cut if the team can only do one thing well?",
     ),
+)
+
+_GENERAL = WorkSignal(
+    key="general",
+    triggers=(),
+    tools=("notes", "web_search"),
+    permission="act_with_approval",
+    model_hint="spark",
+    kind="document",
+    craft="scope note",
+    focus="translate the brief into the decisions that matter here",
 )
 
 
@@ -316,10 +295,57 @@ def _score(text: str, triggers: tuple[str, ...]) -> int:
     return score
 
 
-def rank_archetypes(text: str) -> list[tuple[int, Archetype]]:
-    ranked = [(_score(text, arch.triggers), arch) for arch in ARCHETYPES]
+def _content_words(prompt: str) -> list[str]:
+    """Words the brief actually uses, in order, with filler removed."""
+
+    found: list[str] = []
+    seen: set[str] = set()
+    for token in re.findall(r"[A-Za-z][A-Za-z0-9+'-]*", topic_label(prompt)):
+        key = token.lower()
+        if key in _STOP or key in _LEAD_VERBS or len(key) < 3:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(token)
+    return found or ["brief"]
+
+
+def _rank_signals(text: str) -> list[tuple[int, WorkSignal]]:
+    ranked = [(_score(text, signal.triggers), signal) for signal in WORK_SIGNALS]
     ranked.sort(key=lambda item: item[0], reverse=True)
     return ranked
+
+
+def _role_title(words: list[str], craft: str, index: int) -> str:
+    primary = words[index % len(words)]
+    secondary = words[(index + 1) % len(words)]
+    if secondary.lower() == primary.lower():
+        return f"{primary.title()} {craft}"
+    return f"{primary.title()} {secondary.lower()} {craft}"
+
+
+def _silhouette(digest: bytes) -> str:
+    return ("tall", "compact", "broad")[digest[4] % 3]
+
+
+def _persona(name: str, role: str, topic: str, tools: list[str]) -> str:
+    tool_list = ", ".join(tools) if tools else "notes"
+    return (
+        f"{name} shows up as {role} on {topic}. "
+        f"They reach for {tool_list}, and they will send work back when a handoff skips the acceptance criteria."
+    )
+
+
+def _proposed_tool(topic: str) -> ProposedTool:
+    slug = re.sub(r"[^a-z0-9]+", "-", topic.lower()).strip("-")[:42] or "brief"
+    name = f"{slug}-memory"
+    return ProposedTool(
+        name=name,
+        description=f"Remember decisions, sources, and open assumptions for {topic} across handoffs.",
+        side_effect=False,
+        reason=f"The registry can search and write files, but nothing in it keeps a running memory of {topic}.",
+    )
 
 
 def specialist_cap(answers_text: str) -> int:
@@ -347,126 +373,72 @@ def _criteria(topic: str, kind: str, title: str) -> list[str]:
     ]
 
 
-def _member_from_archetype(
-    arch: Archetype,
+def _employee(
+    signal: WorkSignal,
     *,
+    words: list[str],
     topic: str,
     mission: str,
     lead_id: str | None,
     index: int,
+    craft: str | None = None,
 ) -> TeamMemberSpec:
-    seed = f"{mission}|{arch.key}|{index}"
+    seed = f"{mission}|{signal.key}|{craft or signal.craft}|{index}"
     digest = _hash(seed)
-    member_id = f"m_{digest.hex()[:10]}"
-    title = f"{arch.role} brief: {topic}"
-    return TeamMemberSpec(
-        id=member_id,
-        name=pick_name(seed),
-        role=arch.role,
-        expertise=[topic, *arch.expertise],
-        responsibilities=[
-            f"Own the {arch.kind} work for {topic}.",
-            f"Push on assumptions that would change the {arch.role.lower()}'s recommendation.",
-            f"Hand the next teammate a concrete input, with caveats, so they can {arch.focus}.",
-        ],
-        deliverables=[
-            DeliverableSpec(
-                id=f"d_{digest.hex()[10:20]}",
-                title=title,
-                description=f"{arch.focus.capitalize()} for the mission: {mission[:240]}",
-                acceptance_criteria=_criteria(topic, arch.kind, title),
-                kind=arch.kind,
-            )
-        ],
-        allowed_tools=list(arch.tools),
-        permission_level=arch.permission,
-        model_hint=arch.model_hint,
-        reports_to=lead_id,
-        avatar_hue=(digest[2] * 360) // 256,
-    )
-
-
-def _generalist(topic: str, mission: str, lead_id: str, slot: int) -> TeamMemberSpec:
-    patterns = [
-        (
-            "Domain Specialist",
-            ("domain judgment", "scope control", "stakeholder translation"),
-            "document",
-            "spark",
-            ("notes", "web_search"),
-            "translate the brief into the decisions that matter here",
-        ),
-        (
-            "Analyst",
-            ("comparison", "success measures", "sanity checks"),
-            "data",
-            "spark",
-            ("notes", "code_execute"),
-            "define how the team will know the work landed",
-        ),
-        (
-            "Writer",
-            ("structure", "editing", "plain language"),
-            "document",
-            "spark",
-            ("notes", "file_write"),
-            "package the work so someone outside the team can use it",
-        ),
-        (
-            "Strategist",
-            ("sequencing", "tradeoffs", "review"),
-            "plan",
-            "spark",
-            ("notes",),
-            "decide what to do first and what to leave undone",
-        ),
-    ]
-    role, expertise, kind, hint, tools, focus = patterns[slot % len(patterns)]
-    seed = f"{mission}|general|{role}|{slot}"
-    digest = _hash(seed)
-    title = f"{role} brief: {topic}"
-    kind_typed: DeliverableKind = kind  # type: ignore[assignment]
-    hint_typed: ModelHint = hint  # type: ignore[assignment]
+    role = _role_title(words, craft or signal.craft, index)
+    tools = list(signal.tools)
+    # Marketing briefs that are really about a look still use Muse Image.
+    # Code stays off unless the signal itself is the engineering or analysis lane.
+    hint: ModelHint = signal.model_hint
+    title = f"{role}: {topic}"
+    kind: DeliverableKind = signal.kind
     return TeamMemberSpec(
         id=f"m_{digest.hex()[:10]}",
         name=pick_name(seed),
         role=role,
-        expertise=[topic, *expertise],
+        expertise=[topic, signal.focus, words[index % len(words)]],
         responsibilities=[
-            f"Own {title.lower()}.",
-            "Name the assumption you are least sure about.",
-            f"Leave the team able to {focus}.",
+            f"Own the {kind} work for {topic}.",
+            f"Push on the assumption that would change this {role.lower()} recommendation.",
+            f"Hand the next teammate a concrete input, with caveats, so they can {signal.focus}.",
         ],
         deliverables=[
             DeliverableSpec(
                 id=f"d_{digest.hex()[10:20]}",
                 title=title,
-                description=f"{focus.capitalize()}. Mission context: {mission[:240]}",
+                description=f"{signal.focus.capitalize()} for the mission: {mission[:240]}",
                 acceptance_criteria=_criteria(topic, kind, title),
-                kind=kind_typed,
+                kind=kind,
             )
         ],
-        allowed_tools=list(tools),
-        permission_level="act_with_approval",
-        model_hint=hint_typed,
+        allowed_tools=tools,
+        permission_level=signal.permission,
+        model_hint=hint,
         reports_to=lead_id,
-        avatar_hue=(digest[3] * 360) // 256,
+        avatar_hue=(digest[2] * 360) // 256,
+        persona=_persona(pick_name(seed), role, topic, tools),
+        silhouette=_silhouette(digest),  # type: ignore[arg-type]
+        proposed_tools=[],
     )
 
 
 def design_team(prompt: str, answers: dict[str, str] | None = None) -> TeamSpec:
-    """Compose a team from the brief and clarifying answers.
+    """Invent a team from the brief and the clarifying answers.
 
-    Team size, expertise, and reporting lines all come from that text.
+    Team size, role titles, expertise, and each person's tools come from that
+    text. Role titles use the brief's own words. Tools are chosen from the
+    registry by the kind of work the brief describes, and the lead proposes
+    one tool the registry does not have yet.
     """
 
     answers = answers or {}
     answer_text = "\n".join(answers.values())
     brief = f"{prompt}\n{answer_text}".strip()
     topic = topic_label(prompt)
-    ranked = rank_archetypes(brief.lower())
+    words = _content_words(prompt)
     cap = specialist_cap(answer_text + "\n" + prompt)
-    chosen = [arch for score, arch in ranked if score > 0][:cap]
+    chosen = [signal for score, signal in _rank_signals(brief.lower()) if score > 0][:cap]
+    domain = chosen[0].key if chosen else "general"
 
     mission = prompt.strip()
     if answer_text.strip():
@@ -475,11 +447,13 @@ def design_team(prompt: str, answers: dict[str, str] | None = None) -> TeamSpec:
     lead_seed = f"lead|{mission}"
     lead_digest = _hash(lead_seed)
     lead_id = f"m_{lead_digest.hex()[:10]}"
-    domain = chosen[0].domain if chosen else "general"
+    lead_name = pick_name(lead_seed)
+    lead_tools = ["web_search", "notes"]
     lead_title = f"Team plan: {topic}"
+    proposal = _proposed_tool(topic)
     lead = TeamMemberSpec(
         id=lead_id,
-        name=pick_name(lead_seed),
+        name=lead_name,
         role="Team Lead",
         expertise=[topic, "framing", "coordination", "review"],
         responsibilities=[
@@ -496,33 +470,56 @@ def design_team(prompt: str, answers: dict[str, str] | None = None) -> TeamSpec:
                 kind="plan",
             )
         ],
-        allowed_tools=["web_search", "notes"],
+        allowed_tools=lead_tools,
         permission_level="act_with_approval",
         model_hint="spark",
         reports_to=None,
         avatar_hue=(lead_digest[2] * 360) // 256,
+        persona=_persona(lead_name, "Team Lead", topic, lead_tools),
+        silhouette=_silhouette(lead_digest),  # type: ignore[arg-type]
+        proposed_tools=[proposal],
     )
 
     specialists: list[TeamMemberSpec] = []
-    for index, arch in enumerate(chosen):
-        specialists.append(
-            _member_from_archetype(arch, topic=topic, mission=mission, lead_id=lead_id, index=index)
-        )
+    used_roles = {lead.role.lower()}
+    for index, signal in enumerate(chosen):
+        member = _employee(signal, words=words, topic=topic, mission=mission, lead_id=lead_id, index=index)
+        if member.role.lower() in used_roles:
+            member.role = _role_title(words, signal.craft, index + len(words))
+        used_roles.add(member.role.lower())
+        specialists.append(member)
 
     slot = 0
     while len(specialists) < min(2, cap):
-        candidate = _generalist(topic, mission, lead_id, slot)
+        member = _employee(
+            _GENERAL,
+            words=words,
+            topic=topic,
+            mission=mission,
+            lead_id=lead_id,
+            index=len(specialists) + slot,
+            craft="scope note" if slot % 2 == 0 else "second look",
+        )
         slot += 1
-        if any(existing.role == candidate.role for existing in specialists):
+        if member.role.lower() in used_roles:
+            if slot > 8:
+                break
             continue
-        specialists.append(candidate)
-        if slot > 6:
-            break
+        used_roles.add(member.role.lower())
+        specialists.append(member)
 
-    # Comprehensive asks get an extra generalist when the catalog matched little.
+    # A comprehensive ask gets one more lane when the brief matched few signals.
     if cap >= 4 and len(specialists) < cap:
-        extra = _generalist(topic, mission, lead_id, slot + 3)
-        if all(existing.role != extra.role for existing in specialists):
+        extra = _employee(
+            _GENERAL,
+            words=words,
+            topic=topic,
+            mission=mission,
+            lead_id=lead_id,
+            index=len(specialists) + 3,
+            craft="review pass",
+        )
+        if extra.role.lower() not in used_roles:
             specialists.append(extra)
 
     members = [lead, *specialists]
@@ -534,7 +531,9 @@ def design_team(prompt: str, answers: dict[str, str] | None = None) -> TeamSpec:
             f"{member.name} ({member.role}) reports to {lead.name} and owns “{member.deliverables[0].title}”."
         )
     structure_bits.append(
-        "Teammates challenge assumptions, hand work across, and raise anything they cannot resolve."
+        f"The lead proposed {proposal.name} because the registry has no memory of this brief. "
+        "Teammates plan, challenge assumptions, hand work across, and verify on their own. "
+        "A person is asked only when a tool would leave the workspace."
     )
     team = TeamSpec(
         id=f"t_{_hash(mission)[:6].hex()}",
@@ -713,6 +712,29 @@ def coerce_member(raw: dict[str, Any], index: int, *, repair: bool) -> TeamMembe
         hue = int(raw.get("avatar_hue", 220)) % 360
     except (TypeError, ValueError):
         hue = 220
+    persona = str(raw.get("persona") or "").strip()
+    if repair and not persona:
+        persona = f"{name or role or 'This teammate'} owns {role or 'the work'} and will say when a handoff is incomplete."
+    silhouette = str(raw.get("silhouette") or "compact")
+    if silhouette not in {"tall", "compact", "broad"}:
+        silhouette = "compact"
+    proposed_tools: list[ProposedTool] = []
+    raw_proposed = raw.get("proposed_tools") or []
+    if isinstance(raw_proposed, list):
+        for item in raw_proposed:
+            if not isinstance(item, dict):
+                continue
+            proposed_name = str(item.get("name") or "").strip()
+            if not proposed_name:
+                continue
+            proposed_tools.append(
+                ProposedTool(
+                    name=proposed_name,
+                    description=str(item.get("description") or "").strip() or f"Proposed tool {proposed_name}.",
+                    side_effect=bool(item.get("side_effect", False)),
+                    reason=str(item.get("reason") or "").strip(),
+                )
+            )
     deliverables_raw = raw.get("deliverables") or []
     deliverables: list[DeliverableSpec] = []
     if isinstance(deliverables_raw, list):
@@ -761,6 +783,9 @@ def coerce_member(raw: dict[str, Any], index: int, *, repair: bool) -> TeamMembe
         model_hint=hint,  # type: ignore[arg-type]
         reports_to=reports_to,
         avatar_hue=hue,
+        persona=persona,
+        silhouette=silhouette,  # type: ignore[arg-type]
+        proposed_tools=proposed_tools,
     )
 
 
@@ -847,14 +872,8 @@ def parse_json_object(text: str) -> dict[str, Any]:
 
 
 def heuristic_questions(prompt: str) -> dict[str, Any]:
-    topic = topic_label(prompt)
-    ranked = rank_archetypes(prompt.lower())
-    top = ranked[0][1] if ranked and ranked[0][0] > 0 else None
-    specific = (
-        top.question
-        if top
-        else f"What is explicitly out of scope for {topic}?"
-    )
+    inline = topic_inline(prompt)
+    specific = f"What would you refuse to compromise on for {inline}, even if the team has to cut everything else?"
     return {
         "questions": [
             {

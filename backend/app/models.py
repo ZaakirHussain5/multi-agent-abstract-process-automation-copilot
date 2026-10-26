@@ -9,6 +9,11 @@ from pydantic import BaseModel, Field
 PermissionLevel = Literal["observe", "draft", "act_with_approval", "act"]
 ModelHint = Literal["spark", "code", "image", "general"]
 DeliverableKind = Literal["document", "code", "image", "research", "plan", "data"]
+Silhouette = Literal["tall", "compact", "broad"]
+ScenePreset = Literal["loft", "lab", "war_room", "studio", "rooftop", "library"]
+TimeOfDay = Literal["dawn", "day", "dusk", "night"]
+SceneLayout = Literal["open", "desks", "meeting"]
+SceneQuality = Literal["full", "simple"]
 SessionStatus = Literal[
     "clarifying",
     "designing",
@@ -44,6 +49,15 @@ class DeliverableSpec(BaseModel):
     kind: DeliverableKind = "document"
 
 
+class ProposedTool(BaseModel):
+    """A tool the team wants that is not in the registry yet. It is not executable."""
+
+    name: str
+    description: str
+    side_effect: bool = False
+    reason: str = ""
+
+
 class TeamMemberSpec(BaseModel):
     id: str
     name: str
@@ -56,6 +70,52 @@ class TeamMemberSpec(BaseModel):
     model_hint: ModelHint = "spark"
     reports_to: str | None = None
     avatar_hue: int = 220
+    persona: str = ""
+    silhouette: Silhouette = "compact"
+    proposed_tools: list[ProposedTool] = Field(default_factory=list)
+
+
+class SceneProps(BaseModel):
+    plants: bool = True
+    screens: bool = True
+    posters: bool = True
+    lamps: bool = True
+    rug: bool = True
+
+
+class SceneLighting(BaseModel):
+    ambient: float = 0.62
+    key: float = 1.1
+    accent: str = "#e07a3d"
+
+
+class SceneCamera(BaseModel):
+    fov: float = 38
+    height: float = 1.6
+    radius: float = 8.5
+
+
+class ScenePalette(BaseModel):
+    floor: str = "#c4b39a"
+    wall: str = "#efe6d6"
+    trim: str = "#2c2824"
+    fog: str = "#d9d0c3"
+    accent: str = "#e07a3d"
+
+
+class SceneConfig(BaseModel):
+    preset: ScenePreset = "loft"
+    time_of_day: TimeOfDay = "day"
+    layout: SceneLayout = "desks"
+    props: SceneProps = Field(default_factory=SceneProps)
+    lighting: SceneLighting = Field(default_factory=SceneLighting)
+    camera: SceneCamera = Field(default_factory=SceneCamera)
+    palette: ScenePalette = Field(default_factory=ScenePalette)
+    poster_title: str = ""
+    poster_image: str = ""
+    quality: SceneQuality = "full"
+    source_prompt: str = ""
+    customized: bool = False
 
 
 class TeamSpec(BaseModel):
@@ -141,6 +201,7 @@ class Session(BaseModel):
     questions: list[Question] = Field(default_factory=list)
     answers: dict[str, str] = Field(default_factory=dict)
     team: TeamSpec | None = None
+    scene: SceneConfig | None = None
     events: list[ActivityEvent] = Field(default_factory=list)
     approvals: list[Approval] = Field(default_factory=list)
     deliverables: list[DeliverableResult] = Field(default_factory=list)

@@ -11,6 +11,19 @@ export type SessionStatus =
   | "completed"
   | "error";
 
+export type Silhouette = "tall" | "compact" | "broad";
+export type ScenePreset = "loft" | "lab" | "war_room" | "studio" | "rooftop" | "library";
+export type TimeOfDay = "dawn" | "day" | "dusk" | "night";
+export type SceneLayout = "open" | "desks" | "meeting";
+export type SceneQuality = "full" | "simple";
+
+export type ProposedTool = {
+  name: string;
+  description: string;
+  side_effect: boolean;
+  reason: string;
+};
+
 export type DeliverableSpec = {
   id: string;
   title: string;
@@ -31,6 +44,32 @@ export type TeamMemberSpec = {
   model_hint: ModelHint;
   reports_to: string | null;
   avatar_hue: number;
+  persona: string;
+  silhouette: Silhouette;
+  proposed_tools: ProposedTool[];
+};
+
+export type SceneProps = {
+  plants: boolean;
+  screens: boolean;
+  posters: boolean;
+  lamps: boolean;
+  rug: boolean;
+};
+
+export type SceneConfig = {
+  preset: ScenePreset;
+  time_of_day: TimeOfDay;
+  layout: SceneLayout;
+  props: SceneProps;
+  lighting: { ambient: number; key: number; accent: string };
+  camera: { fov: number; height: number; radius: number };
+  palette: { floor: string; wall: string; trim: string; fog: string; accent: string };
+  poster_title: string;
+  poster_image: string;
+  quality: SceneQuality;
+  source_prompt: string;
+  customized: boolean;
 };
 
 export type TeamSpec = {
@@ -110,6 +149,7 @@ export type Session = {
   questions: Question[];
   answers: Record<string, string>;
   team: TeamSpec | null;
+  scene: SceneConfig | null;
   events: ActivityEvent[];
   approvals: Approval[];
   deliverables: DeliverableResult[];

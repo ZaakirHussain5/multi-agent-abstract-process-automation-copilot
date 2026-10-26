@@ -12,12 +12,14 @@ from app.models import (
     DeliverableResult,
     OpenQuestion,
     Question,
+    SceneConfig,
     Session,
     TeamMemberSpec,
     TeamSpec,
     Template,
     Verification,
 )
+from app.scene import scene_for_brief
 from app.prompts import (
     act_messages,
     clarify_messages,
@@ -127,6 +129,7 @@ class Orchestrator:
             title=_title(prompt),
             prompt=prompt,
             status="clarifying",
+            scene=scene_for_brief(prompt),
             created_at=now,
             updated_at=now,
         )
@@ -176,6 +179,21 @@ class Orchestrator:
             found.status = "review"
             found.error = None
             found.summary = team.structure
+            if found.scene is None or not found.scene.customized:
+                found.scene = scene_for_brief(found.prompt + "\n" + "\n".join(normalized.values()))
+
+        return self.store.update_session(session_id, apply)
+
+    def save_scene(self, session_id: str, payload: dict[str, Any]) -> Session:
+        self._session(session_id)
+        try:
+            scene = SceneConfig.model_validate(payload)
+        except Exception as exc:
+            raise APIError(f"That room configuration is not valid: {exc}") from exc
+        scene.customized = True
+
+        def apply(found: Session) -> None:
+            found.scene = scene
 
         return self.store.update_session(session_id, apply)
 
@@ -324,6 +342,7 @@ class Orchestrator:
             prompt=text,
             status="review",
             team=team,
+            scene=scene_for_brief(text),
             summary=team.structure,
             created_at=now,
             updated_at=now,

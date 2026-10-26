@@ -322,6 +322,9 @@ function blankMember(team: TeamSpec): TeamMemberSpec {
     model_hint: "spark",
     reports_to: root,
     avatar_hue: Math.floor(Math.random() * 360),
+    persona: "",
+    silhouette: "compact",
+    proposed_tools: [],
   };
 }
 

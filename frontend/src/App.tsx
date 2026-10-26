@@ -5,9 +5,8 @@ import { Shell } from "@/components/shell";
 import { getHealth, getTools } from "@/lib/api";
 import { ThemeProvider, useTheme } from "@/lib/theme";
 import type { Health, ToolInfo } from "@/lib/types";
-import { Home } from "@/views/home";
 import { Jobs } from "@/views/jobs";
-import { SessionPage } from "@/views/session";
+import { StagePage } from "@/views/stage-page";
 import { Templates } from "@/views/templates";
 
 export function App() {
@@ -48,9 +47,9 @@ function Root() {
   return (
     <>
       <Routes>
+        <Route index element={<StagePage />} />
+        <Route path="s/:id" element={<StagePage />} />
         <Route element={<Shell health={health} tools={tools} apiError={apiError} />}>
-          <Route index element={<Home />} />
-          <Route path="s/:id" element={<SessionPage />} />
           <Route path="jobs" element={<Jobs />} />
           <Route path="templates" element={<Templates />} />
         </Route>

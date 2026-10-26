@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 
-from app.models import DeliverableResult, TeamMemberSpec, TeamSpec
+from app.models import DeliverableResult, SceneConfig, TeamMemberSpec, TeamSpec
 
 
 def _system(task: str, body: str) -> str:
@@ -38,18 +38,50 @@ def clarify_messages(prompt: str) -> list[dict[str, str]]:
 def design_messages(prompt: str, answers: dict[str, str]) -> list[dict[str, str]]:
     system = _system(
         "design",
-        "Design a team for this brief. Team size, roles, expertise, and structure must come from the prompt and the answers.\n"
+        "Design a team for this brief. Invent the roles from the prompt. Do not use a stock list of job titles.\n"
         "Rules:\n"
-        "- Between 2 and 6 members, including one Team Lead who reports to nobody.\n"
-        "- The lead uses model_hint spark. Engineering roles use code. Visual roles use image. Everyone else uses spark.\n"
-        "- Every member has expertise, responsibilities, allowed_tools, permission_level, and at least one deliverable.\n"
+        "- Between 2 and 6 members, including one Team Lead who reports to nobody and uses model_hint spark.\n"
+        "- Role titles must contain words from this brief. Two different briefs must not receive the same role title unless they share those words.\n"
+        "- Choose allowed_tools from the registry based on the work, not from a role template. "
+        "Use code_execute only when the brief needs something that runs. Use image_generate when the brief needs a picture. "
+        "model_hint is code when code_execute is allowed, image when the work is visual, otherwise spark.\n"
+        "- Propose one new tool that is not in the registry, on proposed_tools. It is a suggestion, not a call.\n"
+        "- Every member has a persona sentence, a silhouette (tall, compact, or broad), expertise, responsibilities, and at least one deliverable.\n"
         "- Every deliverable has a description and acceptance_criteria specific to this brief.\n"
         "- allowed_tools is a subset of: web_search, http_request, code_execute, file_write, notes, image_generate.\n"
         "- permission_level is one of: observe, draft, act_with_approval, act.\n"
-        "- Prefer act_with_approval for anything that can leave the workspace.\n"
-        'Schema: {"name":"","mission":"","domain":"","structure":"","members":[{"id":"","name":"","role":"","expertise":[""],"responsibilities":[""],"deliverables":[{"id":"","title":"","description":"","acceptance_criteria":[""],"kind":"document"}],"allowed_tools":[""],"permission_level":"act_with_approval","model_hint":"spark","reports_to":null,"avatar_hue":200}]}',
+        "- Prefer act_with_approval for anything that can leave the workspace. The team should plan, act, and verify without waiting, except for those side effects.\n"
+        'Schema: {"name":"","mission":"","domain":"","structure":"","members":[{"id":"","name":"","role":"","persona":"","silhouette":"compact","expertise":[""],"responsibilities":[""],"deliverables":[{"id":"","title":"","description":"","acceptance_criteria":[""],"kind":"document"}],"allowed_tools":[""],"proposed_tools":[{"name":"","description":"","side_effect":false,"reason":""}],"permission_level":"act_with_approval","model_hint":"spark","reports_to":null,"avatar_hue":200}]}',
     )
     user = "USER_PROMPT:\n" + prompt.strip() + "\n\nANSWERS_JSON:\n" + json.dumps(answers, indent=2)
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def scene_messages(prompt: str, current: SceneConfig) -> list[dict[str, str]]:
+    system = _system(
+        "scene",
+        "Turn the user's words into a room configuration for a 3D office where an AI team works.\n"
+        "Change only what the user asked to change. Keep every other field from the current scene.\n"
+        "preset is one of: loft, lab, war_room, studio, rooftop, library.\n"
+        "time_of_day is one of: dawn, day, dusk, night.\n"
+        "layout is one of: open, desks, meeting.\n"
+        "A rooftop at night is preset rooftop and time_of_day night. "
+        "Research or a lab is preset lab. A brand, campaign, or marketing brief is preset studio even if it also says launch. "
+        "A launch with no brand language is preset war_room. A library is preset library.\n"
+        "props has booleans plants, screens, posters, lamps, rug.\n"
+        "lighting has ambient and key as numbers and accent as a hex color.\n"
+        "camera has fov, height, radius.\n"
+        "palette has floor, wall, trim, fog, accent as hex colors.\n"
+        "quality is full or simple. poster_image may be an empty string; the image model fills it.\n"
+        "Set customized true and source_prompt to the user's words.\n"
+        'Schema: {"preset":"loft","time_of_day":"day","layout":"desks","props":{"plants":true,"screens":true,"posters":true,"lamps":true,"rug":true},"lighting":{"ambient":0.6,"key":1.0,"accent":"#e07a3d"},"camera":{"fov":38,"height":1.6,"radius":8.5},"palette":{"floor":"#c4b39a","wall":"#efe6d6","trim":"#2c2824","fog":"#d9d0c3","accent":"#e07a3d"},"poster_title":"","poster_image":"","quality":"full","source_prompt":"","customized":true}',
+    )
+    user = (
+        "USER_PROMPT:\n"
+        + prompt.strip()
+        + "\n\nCURRENT_SCENE_JSON:\n"
+        + current.model_dump_json()
+    )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 

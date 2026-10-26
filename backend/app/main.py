@@ -14,10 +14,12 @@ from pydantic import BaseModel, Field
 
 from app.config import Settings, load_settings
 from app.llm import build_provider
-from app.models import Job
+from app.models import Job, SceneConfig
 from app.orchestrator import APIError, Orchestrator
+from app.prompts import scene_messages
+from app.scene import scene_for_brief
 from app.scheduler import Scheduler
-from app.spec import new_id, team_to_yaml
+from app.spec import new_id, parse_json_object, team_to_yaml
 from app.store import Store, utcnow
 from app.tools import build_registry
 
@@ -54,6 +56,11 @@ class JobIn(BaseModel):
     name: str = ""
     instruction: str = ""
     interval_minutes: int = 60
+
+
+class SceneIn(BaseModel):
+    prompt: str
+    base: dict[str, Any] | None = None
 
 
 class JobPatch(BaseModel):
@@ -126,6 +133,35 @@ def create_app(settings: Settings | None = None, *, step_delay: float | None = N
     @app.get("/api/tools")
     def tools(request: Request) -> list[dict[str, Any]]:
         return [item.model_dump(mode="json") for item in request.app.state.registry.info()]
+
+    @app.post("/api/scene")
+    async def interpret_scene(body: SceneIn, request: Request) -> dict[str, Any]:
+        prompt = body.prompt.strip()
+        if len(prompt) < 3:
+            raise APIError("Say what the room should become.")
+        base = SceneConfig.model_validate(body.base) if body.base else scene_for_brief(prompt)
+        llm = request.app.state.orch.llm
+        try:
+            raw = await llm.complete(messages=scene_messages(prompt, base), model_hint="spark", json_mode=True)
+            scene = SceneConfig.model_validate(parse_json_object(raw))
+        except Exception:
+            from app.scene import apply_scene_prompt
+
+            scene = apply_scene_prompt(base, prompt)
+        scene.source_prompt = prompt
+        scene.customized = True
+        try:
+            scene.poster_image = await llm.image(
+                prompt=f"Poster in the room titled {scene.poster_title}. {prompt}"
+            )
+        except Exception:
+            scene.poster_image = scene.poster_image or ""
+        return scene.model_dump(mode="json")
+
+    @app.put("/api/sessions/{session_id}/scene")
+    def put_scene(session_id: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
+        session = request.app.state.orch.save_scene(session_id, body)
+        return session.model_dump(mode="json")
 
     @app.get("/api/sessions")
     def list_sessions(request: Request) -> list[dict[str, Any]]:

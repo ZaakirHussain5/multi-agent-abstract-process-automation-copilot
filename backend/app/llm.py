@@ -15,6 +15,8 @@ from typing import Protocol
 import httpx
 
 from app.config import Settings
+from app.models import SceneConfig
+from app.scene import apply_scene_prompt
 from app.spec import design_team, heuristic_questions, heuristic_verify, mock_act, topic_label
 
 
@@ -57,6 +59,14 @@ class MockProvider:
                 answers = {}
             team = design_team(prompt, {str(k): str(v) for k, v in answers.items()})
             return team.model_dump_json()
+        if "TASK: scene" in system:
+            prompt = _between(user, "USER_PROMPT:\n", "\n\nCURRENT_SCENE_JSON:\n")
+            current_raw = _after(user, "CURRENT_SCENE_JSON:\n")
+            try:
+                current = SceneConfig.model_validate_json(current_raw)
+            except Exception:
+                current = SceneConfig()
+            return apply_scene_prompt(current, prompt).model_dump_json()
         if "TASK: act" in system:
             context = json.loads(_after(user, "CONTEXT_JSON:\n"))
             from app.models import TeamMemberSpec

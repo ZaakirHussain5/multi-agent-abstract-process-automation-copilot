@@ -3,6 +3,7 @@ import json
 import pytest
 
 from app.spec import (
+    DEFAULT_TOOLS,
     design_team,
     heuristic_questions,
     heuristic_verify,
@@ -34,6 +35,21 @@ def test_engineering_and_marketing_teams_differ():
     assert all(member.model_hint != "code" for member in marketing.members)
     assert engineering.domain == "engineering"
     assert marketing.domain in {"marketing", "design", "writing"}
+    eng_blob = " ".join(member.role for member in engineering.members).lower()
+    mkt_blob = " ".join(member.role for member in marketing.members).lower()
+    assert "invoic" in eng_blob or "api" in eng_blob
+    assert any(token in mkt_blob for token in ("coffee", "campaign", "brand"))
+    assert any("code_execute" in member.allowed_tools for member in engineering.members)
+    assert all("code_execute" not in member.allowed_tools for member in marketing.members)
+    proposed = [
+        tool.name
+        for member in engineering.members + marketing.members
+        for tool in member.proposed_tools
+    ]
+    assert proposed
+    assert all(name not in DEFAULT_TOOLS for name in proposed)
+    assert all(member.persona for member in engineering.members)
+    assert {member.silhouette for member in engineering.members} <= {"tall", "compact", "broad"}
 
 
 def test_obscure_brief_still_produces_a_valid_team():
